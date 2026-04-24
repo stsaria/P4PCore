@@ -3,8 +3,8 @@ import asyncio
 import copy
 from typing import Any, Callable, TypeVar, ParamSpec, Concatenate, Generic
 
-from src.interface.Manager import *
-from src.protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
+from interface.Manager import *
+from protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
 
 P = ParamSpec("P")
 R = TypeVar("R", covariant=True)

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "P4PCore"
+version = "0.1.0"
+description = "PeerForPeers is a secure p2p library"
+dependencies = [
+    "cryptography",
+    "xxhash"
+]
+license = { file = "LICENSE" }

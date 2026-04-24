@@ -1,6 +1,6 @@
 from abstract.P4PEvent import P4PEvent
 
-class P4PRunnerEndReqEvent(P4PEvent):
+class P4PRunnerReBeginReqEvent(P4PEvent):
     @staticmethod
     def isAsync() -> bool:
         return True

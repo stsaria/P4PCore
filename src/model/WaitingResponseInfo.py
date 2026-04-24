@@ -1,6 +1,6 @@
 import os
 
-from src.protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
+from protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
 
 WAITING_RESPONSE_INFO_KEY = tuple[tuple[str, int], bytes]
 

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Protocol, TypeVar
 
-from src.abstract.NetHandler import NetHandler
+from abstract.NetHandler import NetHandler
 
 T = TypeVar("T")
 

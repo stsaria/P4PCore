@@ -2,18 +2,15 @@ from __future__ import annotations
 import logging
 import asyncio
 from asyncio import DatagramTransport, DatagramProtocol, Semaphore, Lock
+from typing import Awaitable, Callable
 
-from src.PeerForPeers import PeerForPeers
-from src.abstract.HasLoop import HasLoop
-from src.abstract.NetHandler import NetHandler
-from src.event.NetRecvedEvent import NetRecvedEvent
-from src.interface.NetHandlerRegistry import NetHandlerRegistry
-from src.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteKVManager
-from src.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize, PacketFlag
-from src.protocol.ProgramProtocol import NET_SEMAPHORE
-from src.model.NetConfig import NetConfig
-
-from saved.custom.customFunc import WillPassPacketForAll
+from abstract.HasLoop import HasLoop
+from abstract.NetHandler import NetHandler
+from interface.NetHandlerRegistry import NetHandlerRegistry
+from manager.SimpleImpls import SimpleCannotDeleteAndOverwriteKVManager
+from protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize, PacketFlag
+from protocol.ProgramProtocol import NET_SEMAPHORE
+from model.NetConfig import NetConfig
 
 logger = logging.getLogger()
 
@@ -23,13 +20,15 @@ class NetServerProtocol(DatagramProtocol):
         self._sem:Semaphore = semaphore
 
         self.transport:DatagramTransport = None
+        self._firewallFunc:Callable[[bytes, tuple[str, int]], Awaitable[bool]] = lambda data, addr: asyncio.sleep(0) or asyncio.Future()
     def connection_made(self, transport:DatagramTransport):
         self.transport = transport
+    def setFirewall(self, firewallFunc:Callable[[bytes, tuple[str, int]], Awaitable[bool]]) -> None:
+        self._firewallFunc = firewallFunc
     async def _run(self, data:bytes, addr:tuple[str, int]) -> None:
-        await PeerForPeers.getEventsManager().triggerEvent(e := NetRecvedEvent(self, addr, data))
-        if e.isCanceled:
+        if not await self._firewallFunc(data, addr):
             return
-        if not (handler := await self._handlers.get(PacketFlag(data[:PacketElementSize.PACKET_FLAG]))):
+        elif not (handler := await self._handlers.get(PacketFlag(data[:PacketElementSize.PACKET_FLAG]))):
             return
         async with self._sem:
             try:

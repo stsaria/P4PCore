@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from src.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from model.HashableEd25519PublicKey import HashableEd25519PublicKey
 
 @dataclass(frozen=True, kw_only=True)
 class NodeIdentify:

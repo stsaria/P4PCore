@@ -1,18 +1,18 @@
 import asyncio
 import os
 
-from src.manager.SimpleImpls import SimpleKVManager
-from src.manager.WaitingResponses import WaitingResponses
-from src.model.WaitingResponse import WaitingResponse
-from src.model.WaitingResponseInfo import WaitingResponseInfo
-from src.protocol.ProgramProtocol import *
-from src.model.NodeIdentify import NodeIdentify
-from src.core.Net import Net
-from src.model.NetConfig import NetConfig
-from src.protocol.Protocol import *
-from src.util import RedundancyCalc
-from src.util.BytesCoverter import itob, btoi
-from src.abstract.NetHandler import NetHandler
+from manager.SimpleImpls import SimpleKVManager
+from manager.WaitingResponses import WaitingResponses
+from model.WaitingResponse import WaitingResponse
+from model.WaitingResponseInfo import WaitingResponseInfo
+from protocol.ProgramProtocol import *
+from model.NodeIdentify import NodeIdentify
+from core.Net import Net
+from model.NetConfig import NetConfig
+from protocol.Protocol import *
+from util import RedundancyCalc
+from util.BytesCoverter import itob, btoi
+from abstract.NetHandler import NetHandler
 
 class ExNet(Net, NetHandler):
     def __init__(self, netConfig:NetConfig):

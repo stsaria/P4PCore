@@ -1,6 +1,6 @@
 from typing import Callable, Protocol, TypeVar
 
-from src.abstract.IncludeGC import IncludeGC
+from abstract.IncludeGC import IncludeGC
 
 T = TypeVar("T")
 K = TypeVar("K")

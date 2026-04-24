@@ -1,30 +1,28 @@
 import os
 import asyncio
 import logging
-from asyncio import Task
 from enum import auto as a
 
-from src.model.HashableEd25519PublicKey import HashableEd25519PublicKey
-from src.PeerForPeers import PeerForPeers
-from src.abstract.HasLoop import HasLoop
-from src.abstract.NetHandler import NetHandler
-from src.interface.NetHandlerRegistry import NetHandlerRegistry
-from src.model.Response import Response
-from src.model.TaskInfo import TaskInfo
-from src.model.NodeIdentify import NodeIdentify
-from src.manager.WaitingResponses import WaitingResponses
-from src.model.WaitingResponse import WaitingResponse
-from src.model.WaitingResponseInfo import WaitingResponseInfo, WAITING_RESPONSE_INFO_KEY
-from src.core.ExNet import ExNet
-from src.model.Ed25519Signer import Ed25519Signer
-from src.util.BytesCoverter import *
-from src.protocol.Protocol import *
-from src.protocol.ProgramProtocol import *
+from interface.ISecureNet import ISecureNet
+from model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from PeerForPeers import PeerForPeers
+from abstract.NetHandler import NetHandler
+from interface.NetHandlerRegistry import NetHandlerRegistry
+from model.Response import Response
+from model.NodeIdentify import NodeIdentify
+from manager.WaitingResponses import WaitingResponses
+from model.WaitingResponse import WaitingResponse
+from model.WaitingResponseInfo import WaitingResponseInfo, WAITING_RESPONSE_INFO_KEY
+from core.ExNet import ExNet
+from model.Ed25519Signer import Ed25519Signer
+from util.BytesCoverter import *
+from protocol.Protocol import *
+from protocol.ProgramProtocol import *
 from saved.AppProtocol import AppFlag, AppElementSize
-from src.manager.SimpleImpls import SimpleCannotOverwriteKVManager, SimpleCannotDeleteAndOverwriteKVManager, SimpleSetManager
-from src.util.Result import Result
-from src.model.X25519AndAesEncrypter import X25519AndAesgcmEncrypter
-from src.util.NonNone import nonNone
+from manager.SimpleImpls import SimpleCannotOverwriteKVManager, SimpleCannotDeleteAndOverwriteKVManager, SimpleSetManager
+from util.Result import Result
+from model.X25519AndAesEncrypter import X25519AndAesgcmEncrypter
+from util.NonNone import nonNone
 from util import BytesSplitter
 from util.AddrLogger import AddrLogger
 
@@ -32,8 +30,8 @@ _logger = logging.getLogger()
 _sAddrLogger = AddrLogger(_logger, True)
 _rAddrLogger = AddrLogger(_logger, False)
 
-class SecureNet(NetHandler, NetHandlerRegistry, HasLoop):
-    def __init__(self, extendedNet:ExNet, myEd25519Signer:Ed25519Signer):
+class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
+    def __init__(self, exNet:ExNet, myEd25519Signer:Ed25519Signer):
         self.__ed25519Signer:Ed25519Signer = myEd25519Signer
 
         self.__waitingResponses:WaitingResponses = WaitingResponses()
@@ -41,16 +39,28 @@ class SecureNet(NetHandler, NetHandlerRegistry, HasLoop):
         self.__handlers:SimpleCannotDeleteAndOverwriteKVManager[AppFlag, NetHandler] = SimpleCannotDeleteAndOverwriteKVManager()
         self._helloingAddrs:SimpleSetManager[tuple[str, int]] = SimpleSetManager()
 
-        self._net:ExNet = extendedNet
+        self._net:ExNet = exNet
 
         asyncio.run(self._net.registerHandler(PacketFlag.SECURE, self))
     async def registerHandler(self, flag:AppFlag, handler:NetHandler) -> bool:
+        """
+        Register a handler for handling secure packets with the given app flag.
+        """
         return await self.__handlers.add(flag, handler)
+    def getExNet(self) -> ExNet:
+        """
+        Get the extended net object.
+        """
+        return self._net
     class HelloResult(Result):
         OTHER_FUNC_IS_TRYING_TO_CONNECT = a()
         ALREADY_CONNECTED = a()
         FAILED_FIRST_HI = a() 
     async def hello(self, nodeIdentify:NodeIdentify) -> HelloResult:
+        """
+        Connect to the node and return the result of the connection.
+        After calling this function, you can communicate with the node securely.
+        """
         if not await self._helloingAddrs.add(nodeIdentify.addr):
             return self.HelloResult.OTHER_FUNC_IS_TRYING_TO_CONNECT
         elif await self.__encrypters.get(nodeIdentify.addr):
@@ -98,6 +108,10 @@ class SecureNet(NetHandler, NetHandlerRegistry, HasLoop):
         await self.__encrypters.add((nodeIdentify.ip, nodeIdentify.port), e)
         return self.HelloResult.SUCCESS
     async def sendToSecure(self, data:bytes, nodeIdentify:NodeIdentify) -> bool:
+        """
+        Send data to the node securely and return whether the sending is successful.
+        This function only returns whether the sending is successful, but it does not return whether the node has received the data.
+        """
         if getMaxDataSizeOnAesEncrypted()-AESGCM_NONCE_SIZE < len(data):
             return False
         if not (e := await self.__encrypters.get(nodeIdentify.addr)):
@@ -219,14 +233,5 @@ class SecureNet(NetHandler, NetHandlerRegistry, HasLoop):
             _logger.exception("An Exception has occurred on handle func")
         finally:
             pass
-    async def begin(self) -> None:
-        await PeerForPeers.getTasksManager().add(
-            TaskInfo(owner=self, identify=self.__waitingResponses.gcLoop),
-            Task(self.__waitingResponses.gcLoop())
-        )
-    async def end(self) -> None:
-        await PeerForPeers.getTasksManager().stopTask(
-            TaskInfo(owner=self.__waitingResponses, identify=self.__waitingResponses.gcLoop)
-        )
 
         

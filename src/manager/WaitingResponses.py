@@ -1,9 +1,9 @@
 from typing import Any, Generic, Hashable, Type, TypeVar
 
-from src.manager.SimpleImpls import SimpleCannotOverwriteKVManager
-from src.abstract.IncludeGC import IncludeGC
-from src.model.WaitingResponseInfo import WAITING_RESPONSE_INFO_KEY, WaitingResponseInfo
-from src.model.WaitingResponse import WaitingResponse
+from manager.SimpleImpls import SimpleCannotOverwriteKVManager
+from abstract.IncludeGC import IncludeGC
+from model.WaitingResponseInfo import WAITING_RESPONSE_INFO_KEY, WaitingResponseInfo
+from model.WaitingResponse import WaitingResponse
 
 OI = TypeVar("OI")
 RT = TypeVar("RT")
@@ -12,7 +12,7 @@ class WaitingResponses:
     def __init__(self):
         self._manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse] = SimpleCannotOverwriteKVManager()
     class _ResponseContext(Generic[OI, RT]):
-        def __init__(self, manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse], waitingResponse:WaitingResponse[RT]):
+        def __init__(self, manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse], waitingResponse:WaitingResponse[OI, RT]):
             self._manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse] = manager
             self._waitingResponseInfo:WaitingResponseInfo = waitingResponse.waitingResponseInfo
             self._waitingResponse = waitingResponse

@@ -7,9 +7,9 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
 
-from src.protocol.Protocol import *
-from src.protocol.ProgramProtocol import ENCRYPTER_OTHER_PARTY_SEQ_WINDOW
-from src.util.BytesCoverter import itob
+from protocol.Protocol import *
+from protocol.ProgramProtocol import ENCRYPTER_OTHER_PARTY_SEQ_WINDOW
+from util.BytesCoverter import itob
 
 class X25519AndAesgcmEncrypter:
     def __init__(self, amIFirstNodeToHello:bool, salt:bytes | None = None):
