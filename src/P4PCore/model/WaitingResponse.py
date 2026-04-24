@@ -1,8 +1,8 @@
 import asyncio
 from asyncio import Future
 
-from model.Response import Response
-from model.WaitingResponseInfo import WaitingResponseInfo
+from src.P4PCore.model.Response import Response
+from src.P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
 
 class WaitingResponse[OI, RV]:
     def __init__(self, waitingResponseInfo:WaitingResponseInfo, otherInfo:OI=None):

@@ -3,28 +3,28 @@ import asyncio
 import logging
 from enum import auto as a
 
-from interface.ISecureNet import ISecureNet
-from model.HashableEd25519PublicKey import HashableEd25519PublicKey
-from PeerForPeers import PeerForPeers
-from abstract.NetHandler import NetHandler
-from interface.NetHandlerRegistry import NetHandlerRegistry
-from model.Response import Response
-from model.NodeIdentify import NodeIdentify
-from manager.WaitingResponses import WaitingResponses
-from model.WaitingResponse import WaitingResponse
-from model.WaitingResponseInfo import WaitingResponseInfo, WAITING_RESPONSE_INFO_KEY
-from core.ExNet import ExNet
-from model.Ed25519Signer import Ed25519Signer
-from util.BytesCoverter import *
-from protocol.Protocol import *
-from protocol.ProgramProtocol import *
+from src.P4PCore.interface.ISecureNet import ISecureNet
+from src.P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from src.P4PCore.PeerForPeers import PeerForPeers
+from src.P4PCore.abstract.NetHandler import NetHandler
+from src.P4PCore.interface.NetHandlerRegistry import NetHandlerRegistry
+from src.P4PCore.model.Response import Response
+from src.P4PCore.model.NodeIdentify import NodeIdentify
+from src.P4PCore.manager.WaitingResponses import WaitingResponses
+from src.P4PCore.model.WaitingResponse import WaitingResponse
+from src.P4PCore.model.WaitingResponseInfo import WaitingResponseInfo, WAITING_RESPONSE_INFO_KEY
+from src.P4PCore.core.ExNet import ExNet
+from src.P4PCore.model.Ed25519Signer import Ed25519Signer
+from src.P4PCore.util.BytesCoverter import *
+from src.P4PCore.protocol.Protocol import *
+from src.P4PCore.protocol.ProgramProtocol import *
 from saved.AppProtocol import AppFlag, AppElementSize
-from manager.SimpleImpls import SimpleCannotOverwriteKVManager, SimpleCannotDeleteAndOverwriteKVManager, SimpleSetManager
-from util.Result import Result
-from model.X25519AndAesEncrypter import X25519AndAesgcmEncrypter
-from util.NonNone import nonNone
-from util import BytesSplitter
-from util.AddrLogger import AddrLogger
+from src.P4PCore.manager.SimpleImpls import SimpleCannotOverwriteKVManager, SimpleCannotDeleteAndOverwriteKVManager, SimpleSetManager
+from src.P4PCore.util.Result import Result
+from src.P4PCore.model.X25519AndAesEncrypter import X25519AndAesgcmEncrypter
+from src.P4PCore.util.NonNone import nonNone
+from src.P4PCore.util import BytesSplitter
+from src.P4PCore.util.AddrLogger import AddrLogger
 
 _logger = logging.getLogger()
 _sAddrLogger = AddrLogger(_logger, True)

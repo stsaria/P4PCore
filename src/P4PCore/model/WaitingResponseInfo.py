@@ -1,6 +1,6 @@
 import os
 
-from protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
+from src.P4PCore.protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
 
 WAITING_RESPONSE_INFO_KEY = tuple[tuple[str, int], bytes]
 

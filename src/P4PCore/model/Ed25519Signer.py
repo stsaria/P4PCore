@@ -2,7 +2,7 @@ import asyncio
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from src.P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 
 class Ed25519Signer:
     def __init__(self, ed25519PrivateKey:Ed25519PrivateKey | None=None):

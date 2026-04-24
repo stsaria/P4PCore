@@ -2,8 +2,8 @@ import asyncio
 from typing import Callable, Type
 import typing
 
-from manager.SimpleImpls import SimpleCannotDeleteKVManager
-from abstract.P4PEvent import P4PEvent
+from src.P4PCore.manager.SimpleImpls import SimpleCannotDeleteKVManager
+from src.P4PCore.abstract.P4PEvent import P4PEvent
 
 _pendingInsts:list[object] = []
 

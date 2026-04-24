@@ -1,4 +1,4 @@
-from abstract.P4PEvent import P4PEvent
+from src.P4PCore.abstract.P4PEvent import P4PEvent
 
 class P4PRunnerReBeginReqEvent(P4PEvent):
     @staticmethod

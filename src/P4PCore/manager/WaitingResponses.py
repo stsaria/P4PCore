@@ -1,9 +1,9 @@
 from typing import Any, Generic, Hashable, Type, TypeVar
 
-from manager.SimpleImpls import SimpleCannotOverwriteKVManager
-from abstract.IncludeGC import IncludeGC
-from model.WaitingResponseInfo import WAITING_RESPONSE_INFO_KEY, WaitingResponseInfo
-from model.WaitingResponse import WaitingResponse
+from src.P4PCore.manager.SimpleImpls import SimpleCannotOverwriteKVManager
+from src.P4PCore.abstract.IncludeGC import IncludeGC
+from src.P4PCore.model.WaitingResponseInfo import WAITING_RESPONSE_INFO_KEY, WaitingResponseInfo
+from src.P4PCore.model.WaitingResponse import WaitingResponse
 
 OI = TypeVar("OI")
 RT = TypeVar("RT")
