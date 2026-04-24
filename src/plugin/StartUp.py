@@ -30,6 +30,5 @@ class StartUp:
             handlers=[ch]
         )
         os.makedirs(SAVED_DIR_PATH, exist_ok=True)
-        print("Hello, I am PeerForPeers!")
 
 _pendingInsts.append(StartUp())
