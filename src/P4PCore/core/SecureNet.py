@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 from enum import auto as a
+from uuid import UUID
 
 from P4PCore.interface.ISecureNet import ISecureNet
 from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
@@ -35,15 +36,16 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
 
         self.__waitingResponses:WaitingResponses = WaitingResponses()
         self.__encrypters:SimpleCannotOverwriteKVManager[tuple[str, int], X25519AndAesgcmEncrypter] = SimpleCannotOverwriteKVManager()
-        self.__handlers:SimpleCannotDeleteAndOverwriteKVManager[AppFlag, NetHandler] = SimpleCannotDeleteAndOverwriteKVManager()
+        self.__handlers:SimpleCannotDeleteAndOverwriteKVManager[UUID, NetHandler] = SimpleCannotDeleteAndOverwriteKVManager()
         self._helloingAddrs:SimpleSetManager[tuple[str, int]] = SimpleSetManager()
 
         self._net:ExNet = exNet
 
         asyncio.run(self._net.registerHandler(PacketFlag.SECURE, self))
-    async def registerHandler(self, flag:AppFlag, handler:NetHandler) -> bool:
+    async def registerHandler(self, flag:UUID, handler:NetHandler) -> bool:
         """
-        Register a handler for handling secure packets with the given app flag.
+        Register a handler for handling secure packets with the flag of the content type.
+        The content type is a UUID that identifies the type of the content of the secure packet.
         """
         return await self.__handlers.add(flag, handler)
     def getExNet(self) -> ExNet:
@@ -192,15 +194,15 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
             SecurePacketElementSize.SEQ,
             includeRest=True
         )
-        aFlag, mainData = BytesSplitter.split(
-            await nonNone(await self.__encrypters.get(addr)).decrypt(
-                eData,
-                btoi(seqB, ENDIAN)
-            ),
-            AppElementSize.APP_FLAG,
+        e = await self.__encrypters.get(addr)
+        if e is None:
+            return
+        cType, mainData = BytesSplitter.split(
+            await e.decrypt(eData, btoi(seqB, ENDIAN)),
+            SecurePacketElementSize.CONTENT_TYPE_UUID,
             includeRest=True
         )
-        if (h := await self.__handlers.get(aFlag)) is None:
+        if (h := await self.__handlers.get(UUID(cType))) is None:
             return
         asyncio.create_task(h.handle(mainData, addr))
     async def handle(self, data:bytes, addr:tuple[str, int]) -> None:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "P4PCore"
-version = "0.1.0"
+version = "0.1.1"
 description = "PeerForPeers is a secure p2p library"
 dependencies = [
     "cryptography",
