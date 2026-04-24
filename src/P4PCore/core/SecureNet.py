@@ -18,7 +18,6 @@ from P4PCore.model.Ed25519Signer import Ed25519Signer
 from P4PCore.util.BytesCoverter import *
 from P4PCore.protocol.Protocol import *
 from P4PCore.protocol.ProgramProtocol import *
-from saved.AppProtocol import AppFlag, AppElementSize
 from P4PCore.manager.SimpleImpls import SimpleCannotOverwriteKVManager, SimpleCannotDeleteAndOverwriteKVManager, SimpleSetManager
 from P4PCore.util.Result import Result
 from P4PCore.model.X25519AndAesEncrypter import X25519AndAesgcmEncrypter
