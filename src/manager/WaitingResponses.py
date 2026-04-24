@@ -1,66 +1,36 @@
-from threading import Condition, Lock, Event
-from time import time
+from typing import Any, Generic, Hashable, Type, TypeVar
 
-from src.interface.Manager import ObjectIndexedKVManager
-from src.model.WaitingResponse import WAITING_RESPONSE_KEY, WaitingResponse
-from src.protocol.ProgramProtocol import WAITING_RESPONSES_GC_SECS
+from src.manager.SimpleImpls import SimpleCannotOverwriteKVManager
+from src.abstract.IncludeGC import IncludeGC
+from src.model.WaitingResponseInfo import WAITING_RESPONSE_INFO_KEY, WaitingResponseInfo
+from src.model.WaitingResponse import WaitingResponse
 
-ResponseValue = object 
+OI = TypeVar("OI")
+RT = TypeVar("RT")
 
-class WaitingResponses(ObjectIndexedKVManager):
-    _waitingResponses:dict[WAITING_RESPONSE_KEY, tuple[WaitingResponse, ResponseValue | None,  int]] = {}
-    _waitingResponsesCond = Condition(Lock())
+class WaitingResponses:
+    def __init__(self):
+        self._manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse] = SimpleCannotOverwriteKVManager()
+    class _ResponseContext(Generic[OI, RT]):
+        def __init__(self, manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse], waitingResponse:WaitingResponse[RT]):
+            self._manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse] = manager
+            self._waitingResponseInfo:WaitingResponseInfo = waitingResponse.waitingResponseInfo
+            self._waitingResponse = waitingResponse
 
-    @classmethod
-    def _getEitherLocked(cls, key:WAITING_RESPONSE_KEY, index:int) -> WaitingResponse | ResponseValue | int | None:
-        return t[index] if (t := cls._waitingResponses.get(key)) != None else None
-
-    @classmethod
-    def addKey(cls, waitingResponse:WaitingResponse) -> None:
-        with cls._waitingResponsesCond:
-            cls._waitingResponses[waitingResponse.getKey()] = (waitingResponse, None, int(time()))
-
-    @classmethod
-    def updateValue(cls, key:WAITING_RESPONSE_KEY, value:ResponseValue | None = None) -> ResponseValue | None:
-        with cls._waitingResponsesCond:
-            oldV = cls._getEitherLocked(key, 1)
-            cls._waitingResponses[key][1] = value
-            cls._waitingResponses[key][2] = int(time())
-            cls._waitingResponsesCond.notify_all()
-        return oldV
+            self._exited:bool = False
+        @property
+        def waitingResponse(self) -> WaitingResponse[OI, RT]:
+            return self._waitingResponse
+        async def __aenter__(self):
+            await self._manager.add(self._waitingResponseInfo.key, self._waitingResponse)
+            return self
+        async def __aexit__(self, _, __, ___):
+            self._exited = True
+            await self._manager.delete(self._waitingResponseInfo.key)
+    def open(self, waitingResponse:WaitingResponse[OI, RT]) -> _ResponseContext[OI, RT]:
+        return self._ResponseContext(self._manager, waitingResponse)
+    async def get(self, waitingResponseInfoKey:WAITING_RESPONSE_INFO_KEY) -> WaitingResponse | None:
+        return await self._manager.get(waitingResponseInfoKey)
     
-    @classmethod
-    def delete(cls, key:WAITING_RESPONSE_KEY) -> bool:
-        with cls._waitingResponsesCond:
-            return cls._waitingResponses.pop(key, None) is not None
+    
 
-    @classmethod
-    def get(cls, key:WAITING_RESPONSE_KEY) -> ResponseValue | None:
-        with cls._waitingResponsesCond:
-            return cls._getEitherLocked(key, 1)
-
-    @classmethod
-    def containsKey(cls, key:WAITING_RESPONSE_KEY) -> bool:
-        with cls._waitingResponsesCond:
-            return key in cls._waitingResponses.keys()
-    
-    @classmethod
-    def getWaitingResponseObjByKey(cls, key:WAITING_RESPONSE_KEY) -> WaitingResponse | None:
-        with cls._waitingResponsesCond:
-            return cls._getEitherLocked(key, 0)
-    
-    @classmethod
-    def waitAndGet(cls, key:WAITING_RESPONSE_KEY, timeoutMilliSec:int | None, stop:Event | None = None) -> ResponseValue | None:
-        with cls._waitingResponsesCond:
-            cls._waitingResponsesCond.wait_for(
-                lambda: cls._getEitherLocked(key, 1) != None or (stop != None and stop.is_set()),
-                timeoutMilliSec / 1000 if timeoutMilliSec != None else None
-            )
-            return cls._getEitherLocked(key, 1) if stop == None or not stop.is_set() else None
-    
-    @classmethod
-    def gc(cls) -> None:
-        with cls._waitingResponsesCond:
-            for k,v in cls._waitingResponses.items():
-                if time() - v[2] > WAITING_RESPONSES_GC_SECS:
-                    cls._waitingResponses.pop(k)

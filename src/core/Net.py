@@ -1,51 +1,88 @@
-from socket import (
-    socket as Socket,
-    AF_INET, AF_INET6,
-    SOCK_DGRAM,
-    SOL_SOCKET, SO_REUSEADDR,
-)
-from typing import Generator
-import select
+from __future__ import annotations
+import logging
+import asyncio
+from asyncio import DatagramTransport, DatagramProtocol, Semaphore, Lock
 
-from src.manager.BannedIps import BannedIps
-from src.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize
-from src.model.NetConfig import SecureNetConfig
+from src.PeerForPeers import PeerForPeers
+from src.abstract.HasLoop import HasLoop
+from src.abstract.NetHandler import NetHandler
+from src.event.NetRecvedEvent import NetRecvedEvent
+from src.interface.NetHandlerRegistry import NetHandlerRegistry
+from src.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteKVManager
+from src.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize, PacketFlag
+from src.protocol.ProgramProtocol import NET_SEMAPHORE
+from src.model.NetConfig import NetConfig
 
+from saved.custom.customFunc import WillPassPacketForAll
 
-class Net:
-    def __init__(self, netConfig: SecureNetConfig) -> None:
-        self._netConfig = netConfig
-        self._socks: list[Socket] = []
+logger = logging.getLogger()
 
-        sock4 = Socket(AF_INET, SOCK_DGRAM)
-        sock4.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        sock4.bind(netConfig.addrV4)
-        self._socks.append(sock4)
+class NetServerProtocol(DatagramProtocol):
+    def __init__(self, handlers:SimpleCannotDeleteAndOverwriteKVManager[PacketFlag, NetHandler], semaphore:Semaphore):
+        self._handlers:SimpleCannotDeleteAndOverwriteKVManager[PacketFlag, NetHandler] = handlers
+        self._sem:Semaphore = semaphore
 
-        sock6 = Socket(AF_INET6, SOCK_DGRAM)
-        sock6.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        sock6.bind(netConfig.addrV6)
-        self._socks.append(sock6)
-
-    def sendTo(self, data:bytes, addr:tuple[str, int]) -> int:
-        return self._socks[1 if ':' in addr[0] else 0].sendto(MAGIC + data, addr)
-    def recv(self) -> Generator[tuple[bytes, tuple[str, int]], None, None]:
-        while True:
+        self.transport:DatagramTransport = None
+    def connection_made(self, transport:DatagramTransport):
+        self.transport = transport
+    async def _run(self, data:bytes, addr:tuple[str, int]) -> None:
+        await PeerForPeers.getEventsManager().triggerEvent(e := NetRecvedEvent(self, addr, data))
+        if e.isCanceled:
+            return
+        if not (handler := await self._handlers.get(PacketFlag(data[:PacketElementSize.PACKET_FLAG]))):
+            return
+        async with self._sem:
             try:
-                readable, _, _ = select.select(self._socks, [], [])
-                for sock in readable:
-                    sock:Socket = sock
-                    data, addr = sock.recvfrom(SOCKET_BUFFER)
-
-                    if not data.startswith(MAGIC):
-                        continue
-                    if BannedIps.contains(addr[0]):
-                        continue
-
-                    yield data[PacketElementSize.MAGIC:], addr
+                await handler.handle(data, addr)
             except Exception:
-                return
+                logger.exception("Unhandled handler exception")
+    def datagram_received(self, data:bytes, addr:tuple[str, int]) -> None:
+        if len(data) > SOCKET_BUFFER:
+            return
+        elif data[:PacketElementSize.MAGIC] != MAGIC:
+            return
+        asyncio.create_task(self._run(data, addr))
 
-    def close(self) -> None:
-        for sock in self._socks:
-            sock.close()
+class Net(NetHandlerRegistry, HasLoop):
+    def __init__(self, netConfig: NetConfig) -> None:
+        self._netConfig = netConfig
+
+        self.__handlers:SimpleCannotDeleteAndOverwriteKVManager[PacketFlag, NetHandler] = SimpleCannotDeleteAndOverwriteKVManager()
+
+        self._protocolV4:NetServerProtocol = None
+        self._protocolV6:NetServerProtocol = None
+
+        self._sem = Semaphore(NET_SEMAPHORE)
+    
+    async def registerHandler(self, packetFlag:PacketFlag, handler:NetHandler) -> None:
+        await self.__handlers.add(packetFlag, handler)
+    def sendTo(self, data:bytes, addr:tuple[str, int]) -> bool:
+        if not (p := (self._protocolV6 if ':' in addr[0] else self._protocolV4)):
+            return False
+        elif not (t := p.transport):
+            return False
+        t.sendto(data, addr)
+        return True
+
+    def isRunning(self) -> bool:
+        v4Running = v4T.is_closing() is False if ((v4 := self._protocolV4) and (v4T := v4.transport)) else False
+        v6Running = v6T.is_closing() is False if ((v6 := self._protocolV6) and (v6T := v6.transport)) else False
+        return v4Running or v6Running # If v4Running is False and v4is_closing() is True, v6 may be not supported by system but net is still running, so use "or" instead of "and". The opposite is a very special enviroment at present but this line may be correct for the future.
+
+    async def begin(self) -> None:
+        loop = asyncio.get_running_loop()
+        
+        _, self._protocolV4 = await loop.create_datagram_endpoint(
+            lambda: NetServerProtocol(self.__handlers, self._sem),
+            local_addr=self._netConfig.addrV4
+        )
+        _, self._protocolV6 = await loop.create_datagram_endpoint(
+            lambda: NetServerProtocol(self.__handlers, self._sem),
+            local_addr=self._netConfig.addrV6
+        )
+    
+    async def end(self) -> None:
+        if (v4 := self._protocolV4) and (v4T := v4.transport):
+            v4T.close()
+        if (v6 := self._protocolV6) and (v6T := v6.transport):
+            v6T.close()

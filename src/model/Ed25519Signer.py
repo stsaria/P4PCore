@@ -1,0 +1,14 @@
+import asyncio
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from src.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+
+class Ed25519Signer:
+    def __init__(self, ed25519PrivateKey:Ed25519PrivateKey | None=None):
+        self._ed25519PrivateKey:Ed25519PrivateKey = ed25519PrivateKey if ed25519PrivateKey else Ed25519PrivateKey.generate()
+    async def sign(self, data:bytes) -> bytes:
+        return await asyncio.to_thread(self._ed25519PrivateKey.sign, data)
+    @property
+    def publicKey(self) -> HashableEd25519PublicKey:
+        return HashableEd25519PublicKey(self._ed25519PrivateKey.public_key())

@@ -1,19 +1,28 @@
-from dataclasses import dataclass
-from typing import Hashable
-from enum import Enum
+import asyncio
+from asyncio import Future
 
-from src.core.Net import Net
-from src.model.NodeIdentify import NodeIdentify
+from src.model.Response import Response
+from src.model.WaitingResponseInfo import WaitingResponseInfo
 
-WAITING_RESPONSE_KEY = tuple[str, int, Hashable, Enum | tuple[Enum], bytes | None]
-
-@dataclass(frozen=True, kw_only=True)
-class WaitingResponse:
-    nodeIdentify:NodeIdentify
-    waitingInst:Hashable
-    waitingType:Enum
-    otherInfoInKey:bytes | None = None
-    otherInfo:object | None = None
-    def getKey(self) -> WAITING_RESPONSE_KEY:
-        return (self.nodeIdentify.ip, self.nodeIdentify.port, self.waitingType, self.otherInfoInKey)
+class WaitingResponse[OI, RV]:
+    def __init__(self, waitingResponseInfo:WaitingResponseInfo, otherInfo:OI=None):
+        self._waitingResponseInfo:WaitingResponseInfo = waitingResponseInfo
+        self._otherInfo:OI = otherInfo
+        self._responseF:Future[Response[RV]] = Future()
+    def setResponse(self, response:Response[RV]) -> bool:
+        try:
+            self._responseF.set_result(response)
+            return True
+        except Exception:
+            return False
+    async def waitAndGet(self, timeoutSec:float | None=None) -> Response[RV]:
+        return await asyncio.wait_for(self._responseF, timeout=timeoutSec)
+    @property
+    def waitingResponseInfo(self) -> WaitingResponseInfo:
+        return self._waitingResponseInfo
+    @property
+    def otherInfo(self) -> OI:
+        return self._otherInfo
+    def __bool__(self) -> bool:
+        return not self._responseF.done()
     

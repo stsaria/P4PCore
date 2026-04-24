@@ -11,8 +11,8 @@ def stob(s:str, size:int, encoding:str) -> bytes:
     for c in s:
         if size and len(b) + len(c.encode(encoding)) > size:
             break
-        b += c.encode(encoding, errors="ignore")
-    return bytes(b)
+        b.append(c.encode(encoding, errors="ignore")[0])
+    return bytes(b)+(b"\x00"*(size-len(b)))
 
 def btos(b:bytes, encoding:str) -> str:
     return b.rstrip(b"\x00").decode(encoding, errors="ignore")
