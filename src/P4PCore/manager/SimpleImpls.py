@@ -3,8 +3,8 @@ import asyncio
 import copy
 from typing import Any, Callable, TypeVar, ParamSpec, Concatenate, Generic
 
-from src.P4PCore.interface.Manager import *
-from src.P4PCore.protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
+from P4PCore.interface.Manager import *
+from P4PCore.protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
 
 P = ParamSpec("P")
 R = TypeVar("R", covariant=True)

@@ -1,13 +1,13 @@
 import logging
 
-from src.P4PCore.model.Settings import Settings
-from src.P4PCore.manager.Events import Events
-from src.P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteBiKVManager
-from src.P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from P4PCore.model.Settings import Settings
+from P4PCore.manager.Events import Events
+from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteBiKVManager
+from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 
-from src.P4PCore.event.P4PRunnerBeginReqEvent import P4PRunnerBeginReqEvent
-from src.P4PCore.event.P4PRunnerEndReqEvent import P4PRunnerEndReqEvent
-from src.P4PCore.event.P4PRunnerGetSecureNetEvent import P4PRunnerGetSecureNetEvent
+from P4PCore.event.P4PRunnerBeginReqEvent import P4PRunnerBeginReqEvent
+from P4PCore.event.P4PRunnerEndReqEvent import P4PRunnerEndReqEvent
+from P4PCore.event.P4PRunnerGetSecureNetEvent import P4PRunnerGetSecureNetEvent
 
 logger = logging.getLogger(__name__)
 

@@ -4,13 +4,13 @@ import asyncio
 from asyncio import DatagramTransport, DatagramProtocol, Semaphore, Lock
 from typing import Awaitable, Callable
 
-from src.P4PCore.abstract.HasLoop import HasLoop
-from src.P4PCore.abstract.NetHandler import NetHandler
-from src.P4PCore.interface.NetHandlerRegistry import NetHandlerRegistry
-from src.P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteKVManager
-from src.P4PCore.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize, PacketFlag
-from src.P4PCore.protocol.ProgramProtocol import NET_SEMAPHORE
-from src.P4PCore.model.NetConfig import NetConfig
+from P4PCore.abstract.HasLoop import HasLoop
+from P4PCore.abstract.NetHandler import NetHandler
+from P4PCore.interface.NetHandlerRegistry import NetHandlerRegistry
+from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteKVManager
+from P4PCore.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize, PacketFlag
+from P4PCore.protocol.ProgramProtocol import NET_SEMAPHORE
+from P4PCore.model.NetConfig import NetConfig
 
 logger = logging.getLogger()
 

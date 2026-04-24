@@ -1,8 +1,8 @@
-from src.P4PCore.abstract.NetHandler import NetHandler
-from src.P4PCore.core.ExNet import ExNet
-from src.P4PCore.interface.NetHandlerRegistry import NetHandlerRegistry
-from src.P4PCore.model.Ed25519Signer import Ed25519Signer
-from src.P4PCore.model.NodeIdentify import NodeIdentify
+from P4PCore.abstract.NetHandler import NetHandler
+from P4PCore.core.ExNet import ExNet
+from P4PCore.interface.NetHandlerRegistry import NetHandlerRegistry
+from P4PCore.model.Ed25519Signer import Ed25519Signer
+from P4PCore.model.NodeIdentify import NodeIdentify
 
 class ISecureNet(NetHandlerRegistry):
     def __init__(self, exNet:ExNet, myEd25519Signer:Ed25519Signer):

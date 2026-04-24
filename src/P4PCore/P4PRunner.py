@@ -1,13 +1,13 @@
-from src.P4PCore.core.SecureNet import SecureNet
-from src.P4PCore.event.P4PRunnerGetSecureNetEvent import P4PRunnerGetSecureNetEvent
+from P4PCore.core.SecureNet import SecureNet
+from P4PCore.event.P4PRunnerGetSecureNetEvent import P4PRunnerGetSecureNetEvent
 
-from src.P4PCore.event.P4PRunnerReBeginReqEvent import P4PRunnerReBeginReqEvent
-from src.P4PCore.model.NetConfig import NetConfig
-from src.P4PCore.core.ExNet import ExNet
-from src.P4PCore.event.P4PRunnerBeginReqEvent import P4PRunnerBeginReqEvent
-from src.P4PCore.event.P4PRunnerEndReqEvent import P4PRunnerEndReqEvent
-from src.P4PCore.manager.Events import EventListener
-from src.P4PCore.PeerForPeers import PeerForPeers
+from P4PCore.event.P4PRunnerReBeginReqEvent import P4PRunnerReBeginReqEvent
+from P4PCore.model.NetConfig import NetConfig
+from P4PCore.core.ExNet import ExNet
+from P4PCore.event.P4PRunnerBeginReqEvent import P4PRunnerBeginReqEvent
+from P4PCore.event.P4PRunnerEndReqEvent import P4PRunnerEndReqEvent
+from P4PCore.manager.Events import EventListener
+from P4PCore.PeerForPeers import PeerForPeers
 
 class P4PRunner:
     def __init__(self) -> None:

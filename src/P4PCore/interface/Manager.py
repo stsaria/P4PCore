@@ -1,6 +1,6 @@
 from typing import Callable, Protocol, TypeVar
 
-from src.P4PCore.abstract.IncludeGC import IncludeGC
+from P4PCore.abstract.IncludeGC import IncludeGC
 
 T = TypeVar("T")
 K = TypeVar("K")

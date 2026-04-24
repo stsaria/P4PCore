@@ -1,6 +1,6 @@
 from threading import Lock
 
-from src.P4PCore.model.Ed25519Signer import Ed25519Signer
+from P4PCore.model.Ed25519Signer import Ed25519Signer
 
 class Settings:
     def __init__(self):

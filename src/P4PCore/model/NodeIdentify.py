@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from src.P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 
 @dataclass(frozen=True, kw_only=True)
 class NodeIdentify:

@@ -1,8 +1,8 @@
 import asyncio
 from asyncio import Future
 
-from src.P4PCore.interface.ISecureNet import ISecureNet
-from src.P4PCore.abstract.P4PEvent import P4PEvent
+from P4PCore.interface.ISecureNet import ISecureNet
+from P4PCore.abstract.P4PEvent import P4PEvent
 
 class P4PRunnerGetSecureNetEvent(P4PEvent):
     @staticmethod
