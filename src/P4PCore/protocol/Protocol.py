@@ -79,13 +79,3 @@ def getMaxDataSizeOnAesEncrypted(enableXxhashMode:bool=False) -> int:
         - (SecurePacketElementSize.XXHASH if enableXxhashMode else 0)
         - SecurePacketElementSize.SEQ
     ) // 16) * 16
-
-print(((
-        SOCKET_BUFFER
-        - SecurePacketElementSize.XXHASH_MODE_FLAG
-        - SecurePacketElementSize.MAGIC
-        - SecurePacketElementSize.PACKET_FLAG
-        - SecurePacketElementSize.MODE_FLAG
-        - 0
-        - SecurePacketElementSize.SEQ
-    ) // 16) * 16)
