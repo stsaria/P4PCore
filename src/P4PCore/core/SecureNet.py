@@ -63,7 +63,7 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
         return self._net
     class HelloResult(IntEnum):
         SUCCESS = a()
-        OTHER_FUNC_IS_TRYING_TO_CONNECT = a()
+        OTHER_FUNC_IS_ALREADY_TRYING_TO_CONNECT = a()
         ALREADY_CONNECTED = a()
         FAILED_FIRST_HI = a()
     async def hello(self, nodeIdentify:NodeIdentify) -> HelloResult:
@@ -71,9 +71,12 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
         Connect to the node and return the result of the connection.
         After calling this function, you can communicate with the node securely.
         """
+        _sAddrLogger.dbg(nodeIdentify.addr, "Trying hello.")
         if not await self._helloingAddrs.add(nodeIdentify.addr):
-            return self.HelloResult.OTHER_FUNC_IS_TRYING_TO_CONNECT
+            _sAddrLogger.warn(nodeIdentify.addr, "Failed to try hello, other function is already trying.")
+            return self.HelloResult.OTHER_FUNC_IS_ALREADY_TRYING_TO_CONNECT
         elif await self.__encrypters.get(nodeIdentify.addr):
+            _sAddrLogger.warn(nodeIdentify.addr, "Failed to try hello, the node is already connected.")
             return self.HelloResult.ALREADY_CONNECTED
         async with self.__waitingResponses.open(
             WaitingResponse[tuple[HashableEd25519PublicKey, bytes], tuple[bytes, bytes, bytes]](
@@ -82,7 +85,7 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
             )
         ) as c:
             success = False
-            for _ in range(HELLO_ATTEMPTS):
+            for _ in range(HELLO_SEND_VOLUME):
                 self._net.sendTo(
                     (
                         itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG, ENDIAN)
@@ -97,34 +100,39 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
                     success = True
                     break
             if not success:
+                _sAddrLogger.warn(nodeIdentify.addr, "Failed to try hello, the node didn't respond.")
                 return self.HelloResult.FAILED_FIRST_HI
         cT, oPX25519PKB, aesSalt = r.value
         e = X25519AndAesgcmEncrypter(
             True,
             salt=aesSalt
         )
-        self._net.sendTo(
-            (
-                itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG, ENDIAN)
-                +itob(PacketModeFlag.SECOND_HELLO, SecurePacketElementSize.MODE_FLAG, ENDIAN)
-                +r.nextResponseId
-                +(pubKeyRaw := e.myX25519PublicKeyBytes)
-                +await self.__ed25519Signer.sign(cT+pubKeyRaw)
-            ),
-            nodeIdentify.addr
-        )
+        for _ in range(HELLO_SEND_VOLUME):
+            self._net.sendTo(
+                (
+                    itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG, ENDIAN)
+                    +itob(PacketModeFlag.SECOND_HELLO, SecurePacketElementSize.MODE_FLAG, ENDIAN)
+                    +r.nextResponseId
+                    +(pubKeyRaw := e.myX25519PublicKeyBytes)
+                    +await self.__ed25519Signer.sign(cT+pubKeyRaw)
+                ),
+                nodeIdentify.addr
+            )
         await e.derive(oPX25519PKB)
         await PeerForPeers.getAddrToEd25519PubkeysManager().add(nodeIdentify.addr, nodeIdentify.hashableEd25519PublicKey)
         await self.__encrypters.add((nodeIdentify.ip, nodeIdentify.port), e)
+
         return self.HelloResult.SUCCESS
-    async def sendToSecure(self, data:bytes, nodeIdentify:NodeIdentify) -> bool:
+    async def sendToSecure(self, data:bytes, to:NodeIdentify | tuple[str, int]) -> bool:
         """
         Send data to the node securely and return whether the sending is successful.
         This function only returns whether the sending is successful, but it does not return whether the node has received the data.
         """
+        if isinstance(to, NodeIdentify):
+            to = to.addr
         if getMaxDataSizeOnAesEncrypted()-AESGCM_NONCE_SIZE < len(data):
             return False
-        if not (e := await self.__encrypters.get(nodeIdentify.addr)):
+        if not (e := await self.__encrypters.get(to)):
             return False
         seq, eData = await e.encrypt(data)
         return self._net.sendTo(
@@ -132,7 +140,7 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
             +itob(PacketModeFlag.MAIN_DATA, SecurePacketElementSize.MODE_FLAG, ENDIAN)
             +itob(seq, SecurePacketElementSize.SEQ, ENDIAN)
             +eData,
-            nodeIdentify.addr
+            to
         )
 
     async def getAddrs(self) -> list[tuple[str, int]]:
@@ -158,23 +166,21 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
                 (ed25519PubKeyB, nCT := os.urandom(ANY_UNIQUE_RANDOM_BYTES_SIZE))
             )
         ) as c:
-            self._net.sendTo(
-                (
-                    itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG, ENDIAN)
-                    +itob(PacketModeFlag.RESP_HELLO, SecurePacketElementSize.MODE_FLAG, ENDIAN)
-                    +rI
-                    +c.waitingResponse.waitingResponseInfo.identify
-                    +(signEndPart := nCT+e.myX25519PublicKeyBytes+e.salt)
-                    +await self.__ed25519Signer.sign(cT+signEndPart)
-                ),
-                addr
-            )
-            if (r := await c.waitingResponse.waitAndGet(TIME_OUT_SEC)) is None:
-                await self._helloingAddrs.remove(addr)
-                return
-            elif r.value is None:
-                await self._helloingAddrs.remove(addr)
-                return
+            for _ in range(HELLO_SEND_VOLUME):
+                self._net.sendTo(
+                    (
+                        itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG, ENDIAN)
+                        +itob(PacketModeFlag.RESP_HELLO, SecurePacketElementSize.MODE_FLAG, ENDIAN)
+                        +rI
+                        +c.waitingResponse.waitingResponseInfo.identify
+                        +(signEndPart := nCT+e.myX25519PublicKeyBytes+e.salt)
+                        +await self.__ed25519Signer.sign(cT+signEndPart)
+                    ),
+                    addr
+                )
+                if (r := await c.waitingResponse.waitAndGet(TIME_OUT_SEC)) and r.value:
+                    await self._helloingAddrs.remove(addr)
+                    break
         if not await PeerForPeers.getAddrToEd25519PubkeysManager().add(addr, ed25519PubKeyB):
             await self._helloingAddrs.remove(addr)
             return
@@ -256,5 +262,3 @@ class SecureNet(ISecureNet, NetHandler, NetHandlerRegistry):
             _logger.exception("An Exception has occurred on handle func")
         finally:
             pass
-
-        

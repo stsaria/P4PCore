@@ -4,7 +4,7 @@ ENDIAN = "big"
 
 MAGIC = b"P4P"
 
-PROTOCOL_VER = 2
+PROTOCOL_VER = 3
 
 MAGIC += PROTOCOL_VER.to_bytes(4, ENDIAN)
 
@@ -64,6 +64,7 @@ class PacketFlag(IntEnum):
 class PacketModeFlag(IntEnum):
     PING = 1
     PONG = 2
+    
     HELLO = 10
     RESP_HELLO = 11
     SECOND_HELLO = 12

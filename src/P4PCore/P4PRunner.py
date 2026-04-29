@@ -1,3 +1,5 @@
+import logging
+
 from P4PCore.core.SecureNet import SecureNet
 from P4PCore.event.P4PRunnerGetSecureNetEvent import P4PRunnerGetSecureNetEvent
 
@@ -8,6 +10,8 @@ from P4PCore.event.P4PRunnerBeginReqEvent import P4PRunnerBeginReqEvent
 from P4PCore.event.P4PRunnerEndReqEvent import P4PRunnerEndReqEvent
 from P4PCore.manager.Events import EventListener
 from P4PCore.PeerForPeers import PeerForPeers
+
+logger = logging.getLogger(__name__)
 
 class P4PRunner:
     _net:Net
@@ -22,6 +26,7 @@ class P4PRunner:
         return inst
     @EventListener
     async def onRunnerBeginReqEvent(self, _:P4PRunnerBeginReqEvent) -> None:
+        logger.debug("Starting P4P")
         await self._net.begin()
     @EventListener
     async def onRunnerReBeginReqEvent(self, _:P4PRunnerReBeginReqEvent) -> None:
