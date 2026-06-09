@@ -1,4 +1,3 @@
-import pytest
 from P4PCore.util.BytesCoverter import itob, btoi, stob, btos
 from enum import IntEnum
 

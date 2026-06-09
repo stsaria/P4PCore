@@ -1,4 +1,3 @@
-import pytest
 from P4PCore.model.NetConfig import NetConfig
 
 

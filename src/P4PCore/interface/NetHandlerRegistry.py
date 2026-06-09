@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import Protocol, TypeVar
 
 from P4PCore.abstract.NetHandler import NetHandler

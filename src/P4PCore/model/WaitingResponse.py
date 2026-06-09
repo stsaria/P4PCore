@@ -1,27 +1,29 @@
 import asyncio
-from asyncio import Future
+from asyncio import Future, InvalidStateError
 from asyncio.exceptions import CancelledError, TimeoutError
+from typing import Generic, TypeVar
 
 from P4PCore.model.Response import Response
 from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
 
-class WaitingResponse[OI, RV]:
+OI = TypeVar("OI")
+RV = TypeVar("RV")
+
+class WaitingResponse(Generic[OI, RV]):
     def __init__(self, waitingResponseInfo:WaitingResponseInfo, otherInfo:OI=None):
         self._waitingResponseInfo:WaitingResponseInfo = waitingResponseInfo
         self._otherInfo:OI = otherInfo
-        self._responseF:Future[Response[RV] | None] = Future()
+        self._responseFuture:Future[Response[RV] | None] = Future()
     def setResponse(self, response:Response[RV] | None) -> bool:
         try:
-            self._responseF.set_result(response)
+            self._responseFuture.set_result(response)
             return True
-        except Exception:
+        except InvalidStateError:
             return False
     async def waitAndGet(self, timeoutSec:float | None=None) -> Response[RV] | None:
         try:
-            return await asyncio.wait_for(self._responseF, timeout=timeoutSec)
-        except CancelledError:
-            return None
-        except TimeoutError:
+            return await asyncio.wait_for(self._responseFuture, timeout=timeoutSec)
+        except (TimeoutError, CancelledError):
             return None
     @property
     def waitingResponseInfo(self) -> WaitingResponseInfo:
@@ -30,5 +32,5 @@ class WaitingResponse[OI, RV]:
     def otherInfo(self) -> OI:
         return self._otherInfo
     def __bool__(self) -> bool:
-        return not self._responseF.done()
+        return not self._responseFuture.done()
     

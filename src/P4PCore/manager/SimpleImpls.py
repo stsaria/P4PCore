@@ -1,10 +1,7 @@
-from asyncio import Condition, Lock, Future, TimeoutError
-import asyncio
-import copy
-from typing import Any, Callable, TypeVar, ParamSpec, Concatenate, Generic
+from asyncio import Lock
+from typing import Awaitable, Callable, TypeVar, ParamSpec, Concatenate, Generic
 
 from P4PCore.interface.Manager import *
-from P4PCore.protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
 
 P = ParamSpec("P")
 R = TypeVar("R", covariant=True)
@@ -40,7 +37,10 @@ class SimpleSetManager(SetManager, Generic[I]):
             return set(self._set)
     async def atomic(self, func:Callable[Concatenate[set[I], P], R], *args:P.args, **kwargs:P.kwargs) -> R:
         async with self._setLock:
-            return func(self._set, *args, **kwargs)
+            r = func(self._set, *args, **kwargs)
+            if isinstance(r, Awaitable):
+                return await r
+            return r
 
 class SimpleListManager(ListManager, Generic[I]):
     def __init__(self,):
@@ -85,7 +85,10 @@ class SimpleListManager(ListManager, Generic[I]):
             self._list.clear()
     async def atomic(self, func:Callable[Concatenate[list[I], P], R], *args:P.args, **kwargs:P.kwargs) -> R:
         async with self._listLock:
-            return func(self._list, *args, **kwargs)
+            r = func(self._list, *args, **kwargs)
+            if isinstance(r, Awaitable):
+                return await r
+            return r
 
 class _BaseKVManager(Generic[K, V]):
     def __init__(self):
@@ -93,7 +96,10 @@ class _BaseKVManager(Generic[K, V]):
         self._dictLock:Lock = Lock()
     async def atomic(self, func:Callable[Concatenate[dict[K, V], P], R], *args:P.args, **kwargs:P.kwargs) -> R:
         async with self._dictLock:
-            return func(self._dict, *args, **kwargs)
+            r = func(self._dict, *args, **kwargs)
+            if isinstance(r, Awaitable):
+                return await r
+            return r
 class _BaseBiKVManager(Generic[K, V]):
     def __init__(self):
         self._dict:dict[K, V] = {}
@@ -101,7 +107,10 @@ class _BaseBiKVManager(Generic[K, V]):
         self._rDict:dict[V, K] = {}
     async def atomic(self, func:Callable[Concatenate[dict[K, V], dict[V, K], P], R], *args:P.args, **kwargs:P.kwargs) -> R:
         async with self._dictLock:
-            return func(self._dict, self._rDict, *args, **kwargs)
+            r = func(self._dict, self._rDict, *args, **kwargs)
+            if isinstance(r, Awaitable):
+                return await r
+            return r
 class _WriteKVMixin(WriteableKV, Generic[K, V]):
     async def put(self:_BaseKVManager[K, V], key:K, value:V) -> V | None:
         async with self._dictLock:
@@ -179,43 +188,3 @@ class SimpleCannotDeleteAndOverwriteKVManager(Generic[K, V], _BaseKVManager[K, V
     pass
 class SimpleCannotDeleteAndOverwriteBiKVManager(Generic[K, V], _BaseBiKVManager[K, V], _ReadBiKVMixin[K, V], _AddBiKVMixin[K, V]):
     pass
-
-class SimpleAmountLimitedTicketManager(AmountLimitedTokenManager, Generic[T]):
-    def __init__(self, amountLimit:int, uniqueTokenGenerator:Callable[[], T]):
-        self._amountLimit = amountLimit
-        self._uniqueTokenGenerator:Callable[[], T] = uniqueTokenGenerator
-
-        self._tokens:set[T] = set()
-        self._waiters:list[Future[T]] = []
-        self._lock:Lock = Lock()
-    async def waitAndAllocate(self, timeoutSec:float | None=None) -> T | None:
-        """First come, first served."""
-        async with self._lock:
-            if len(self._tokens) < self._amountLimit:
-                token = self._uniqueTokenGenerator()
-                self._tokens.add(token)
-                return token
-            fut:Future[T] = Future()
-            self._waiters.append(fut)
-        try:
-            return await asyncio.wait_for(fut, timeoutSec)
-        except TimeoutError:
-            async with self._lock:
-                if not fut.done():
-                    fut.cancel()
-                    self._waiters.remove(fut)
-            return None
-    async def release(self, token:T) -> None:
-        async with self._lock:
-            if not token in self._tokens:
-                return
-            self._tokens.remove(token)
-            while len(self._waiters) > 0 and not self._waiters[0].done():
-                fut = self._waiters.pop(0)
-                if fut.done():
-                    continue
-                newToken = self._uniqueTokenGenerator()
-                self._tokens.add(newToken)
-                fut.set_result(newToken)
-                break
-    

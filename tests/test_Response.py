@@ -1,4 +1,3 @@
-import pytest
 from P4PCore.model.Response import Response
 
 
@@ -9,7 +8,7 @@ class TestResponse:
         assert response.nextResponseId is None
 
     def testCreateWithNextResponseId(self):
-        response = Response("value", nextResponseId=b"next123")
+        response = Response("value", nextResponseIdentify=b"next123")
         assert response.value == "value"
         assert response.nextResponseId == b"next123"
 

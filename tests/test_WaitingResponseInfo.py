@@ -1,4 +1,3 @@
-import pytest
 from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
 
 

@@ -1,15 +1,16 @@
-def split(d:bytes, *sizes:tuple[int], includeRest:bool = False) -> list[bytes]:
+def split(data:bytes, *sizes:tuple[int], includeRest:bool = False) -> list[bytes]:
     if includeRest:
-        d += b"\x00"
-    datas = []
-    l = len(d)
+        data += b"\x00"
+    splitData = []
+    dataSize = len(data)
     head = 0
+    
     for s in sizes:
-        if head+s > l:
+        if head+s > dataSize:
             raise ValueError("Data too short")
-        datas.append(d[head:head+s])
+        splitData.append(data[head:head+s])
         head += s
-    if len(d) > head and includeRest:
-        datas.append(d[head:-1])
+    if len(data) > head and includeRest:
+        splitData.append(data[head:-1])
 
-    return datas
+    return splitData

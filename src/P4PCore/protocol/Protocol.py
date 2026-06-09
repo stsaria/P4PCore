@@ -6,7 +6,7 @@ MAGIC = b"P4P"
 
 PROTOCOL_VER = 4
 
-MAGIC += PROTOCOL_VER.to_bytes(4, ENDIAN)
+MAGIC += PROTOCOL_VER.to_bytes(4)
 
 SOCKET_BUFFER = 1400
 STR_ENCODING = "utf-8"
@@ -30,7 +30,7 @@ class PacketElementSize:
     MODE_FLAG=1
     SEQ=8
 
-SEQ_MAX_BY_PACKET_ELEMENT_SIZE = (1 << PacketElementSize.SEQ*8)-1
+MAX_SEQ_OF_SECURE_NET = (1 << PacketElementSize.SEQ*8)-1
 
 class SecurePacketElementSize(PacketElementSize):
     PROTOCOL_CLIENT=2
@@ -54,12 +54,11 @@ class ModeFlag(IntEnum):
     SECOND_HELLO = 12
     MAIN_DATA = 13
 
-def getMaxDataSizeOnAesEncrypted() -> int:
-    return (
-        SOCKET_BUFFER
-        - SecurePacketElementSize.MAGIC
-        - SecurePacketElementSize.PACKET_FLAG
-        - SecurePacketElementSize.MODE_FLAG
-        - SecurePacketElementSize.SEQ
-        - AESGCM_AUTH_TAG
-    )
+MAX_DATA_SIZE_ON_ENCRYPTED_AES = (
+    SOCKET_BUFFER
+    - SecurePacketElementSize.MAGIC
+    - SecurePacketElementSize.PACKET_FLAG
+    - SecurePacketElementSize.MODE_FLAG
+    - SecurePacketElementSize.SEQ
+    - AESGCM_AUTH_TAG
+)

@@ -1,5 +1,5 @@
 import asyncio
-from typing import Callable, Generic, Type
+from typing import Callable, Type
 import typing
 
 from P4PCore.manager.SimpleImpls import SimpleCannotDeleteKVManager
@@ -22,22 +22,27 @@ class Events:
             m = getattr(inst, n)
             if not hasattr(m, "_isAEventListener"):
                 continue
-            for aN, aT in typing.get_type_hints(m).items():
-                if aN == "return":
+            for funcName, funcType in typing.get_type_hints(m).items():
+                if funcName == "return":
                     continue
-                elif not issubclass(aT, P4PEvent):
+                elif not issubclass(funcType, P4PEvent):
                     continue
-                await self._events.atomic(lambda d: d.setdefault(aT, set()).add(m))
+                await self._events.atomic(lambda d: d.setdefault(funcType, set()).add(m))
     async def triggerEvent(self, event:P4PEvent) -> None:
         """
         Trigger an event. All the listeners registered to listen to this type of event will be called.
         """
-        if (eT := getattr(event, "__orig_class__", None)) is None:
-            eT = type(event)
+        callbacks = await self._events.get(type(event))
+        if not callbacks:
+            return
+        
         if event.isAsync():
-            await asyncio.gather(*(callback(event) for callback in await self._events.get(type(event)) or set()))
+            await asyncio.gather(
+                *(callback(event) for callback in callbacks),
+                return_exceptions=True
+            )
         else:
-            for callback in await self._events.get(eT) or set():
+            for callback in callbacks:
                 callback(event)
 
 def EventListener(func:Callable) -> Callable:
