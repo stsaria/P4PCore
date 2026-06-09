@@ -2,20 +2,15 @@ from uuid import uuid4
 
 from P4PCore.P4PRunner import P4PRunner
 from P4PCore.abstract.NetHandler import NetHandler
+
 from P4PCore.model.NodeIdentify import NodeIdentify
-from P4PCore.model.Settings import Settings
 import pytest
 import asyncio
 
 class TestSecureNet:
     @pytest.mark.asyncio
-    async def testSecureNetCreate(self):
-        runner = await P4PRunner.create(Settings())
-        assert runner.secureNet is not None
-
-    @pytest.mark.asyncio
     async def testSecureNetRegisterHandler(self):
-        runner = await P4PRunner.create(Settings())
+        runner = await P4PRunner.create()
         
         class DummyHandler(NetHandler):
             async def handle(self, data: bytes, addr: tuple[str, int]) -> None:
@@ -29,12 +24,12 @@ class TestSecureNet:
 class TestSecureNetCommunication:
     @pytest.mark.asyncio
     async def testSecureNetHello(self):
-        runner = await P4PRunner.create(Settings())
+        runner = await P4PRunner.create()
         secureNet = runner.secureNet
         await runner.begin()
         await asyncio.sleep(0.1)
 
-        runner2 = await P4PRunner.create(Settings())
+        runner2 = await P4PRunner.create()
         secureNet2 = runner2.secureNet
         await runner2.begin()
         await asyncio.sleep(0.1)
@@ -43,14 +38,15 @@ class TestSecureNetCommunication:
             NodeIdentify(
                 ip="127.0.0.1",
                 port=secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")[1],
-                hashableEd25519PublicKey=runner.settings.ed25519Signer.publicKey)
-            ) == runner2.secureNet.HelloResult.SUCCESS
+                hashableEd25519PublicKey=runner.ed25519Signer.publicKey
+            )
+        ) == runner2.secureNet.HelloResult.SUCCESS
         await asyncio.sleep(0.1)
         assert await secureNet.getAddrs()
         assert await secureNet2.getAddrs()
     @pytest.mark.asyncio
     async def testSecureNetCommunication(self):
-        runner = await P4PRunner.create(Settings())
+        runner = await P4PRunner.create()
         secureNet = runner.secureNet
         class TestNetHandler(NetHandler):
             def __init__(self):
@@ -66,7 +62,7 @@ class TestSecureNetCommunication:
         await runner.begin()
         await asyncio.sleep(0.1)
 
-        runner2 = await P4PRunner.create(Settings())
+        runner2 = await P4PRunner.create()
         secureNet2 = runner2.secureNet
         await runner2.begin()
         await asyncio.sleep(0.1)
@@ -74,7 +70,7 @@ class TestSecureNetCommunication:
         netNI = NodeIdentify(
             ip="127.0.0.1",
             port=secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")[1],
-            hashableEd25519PublicKey=runner.settings.ed25519Signer.publicKey
+            hashableEd25519PublicKey=runner.ed25519Signer.publicKey
         )
         await secureNet2.hello(netNI)
         await asyncio.sleep(0.1)

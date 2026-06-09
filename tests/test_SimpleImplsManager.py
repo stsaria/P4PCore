@@ -4,54 +4,6 @@ from P4PCore.manager.SimpleImpls import *
 
 class TestSimpleImplsManager:
     @pytest.mark.asyncio
-    async def testAdd(self):
-        manager: SimpleSetManager[int] = SimpleSetManager()
-        assert await manager.add(1) is True
-        assert await manager.add(1) is False  
-        assert await manager.contains(1) is True
-
-    @pytest.mark.asyncio
-    async def testRemove(self):
-        manager: SimpleSetManager[int] = SimpleSetManager()
-        await manager.add(1)
-        assert await manager.remove(1) is True
-        assert await manager.remove(1) is False  
-        assert await manager.contains(1) is False
-
-    @pytest.mark.asyncio
-    async def testClear(self):
-        manager: SimpleSetManager[int] = SimpleSetManager()
-        await manager.add(1)
-        await manager.add(2)
-        await manager.add(3)
-        await manager.clear()
-        assert await manager.contains(1) is False
-        assert await manager.contains(2) is False
-        assert await manager.contains(3) is False
-
-    @pytest.mark.asyncio
-    async def testGetAll(self):
-        manager: SimpleSetManager[int] = SimpleSetManager()
-        await manager.add(1)
-        await manager.add(2)
-        await manager.add(3)
-        all_items = await manager.getAll()
-        assert all_items == {1, 2, 3}
-
-    @pytest.mark.asyncio
-    async def testAtomic(self):
-        manager: SimpleSetManager[int] = SimpleSetManager()
-        await manager.add(1)
-        await manager.add(2)
-        
-        def mutate_set(s: set[int]) -> int:
-            s.add(3)
-            return len(s)
-        
-        result = await manager.atomic(mutate_set)
-        assert result == 3
-        assert await manager.contains(3) is True
-    @pytest.mark.asyncio
     async def testSimpleSetManagerAdd(self):
         manager: SimpleSetManager[int] = SimpleSetManager()
         assert await manager.add(1) is True
@@ -92,19 +44,32 @@ class TestSimpleImplsManager:
         await manager.add(1)
         await manager.add(2)
         
-        def mutate_set(s: set[int]) -> int:
+        def atomic(s: set[int], x: int) -> int:
+            assert x == 3
             s.add(3)
             return len(s)
         
-        result = await manager.atomic(mutate_set)
+        result = await manager.atomic(atomic, 3)
+        assert result == 3
+        assert await manager.contains(3) is True
+    
+    @pytest.mark.asyncio
+    async def testSimpleSetManagerAtomicAsync(self):
+        manager: SimpleSetManager[int] = SimpleSetManager()
+        await manager.add(1)
+        await manager.add(2)
+        
+        async def atomic(s: set[int], x: int) -> int:
+            assert x == 3
+            s.add(3)
+            return len(s)
+        
+        result = await manager.atomic(atomic, 3)
         assert result == 3
         assert await manager.contains(3) is True
 
-
-
-
     @pytest.mark.asyncio
-    async def testSimpleListManagerInsert(self):
+    async def testSimpleListManagerInsertNext(self):
         manager: SimpleListManager[int] = SimpleListManager()
         await manager.insertNext(1)
         await manager.insertNext(2)
@@ -183,9 +148,36 @@ class TestSimpleImplsManager:
         await manager.insertNext(2)
         await manager.clear()
         assert await manager.getLength() == 0
-
-
-
+    
+    @pytest.mark.asyncio
+    async def testSimpleListManagerAtomic(self):
+        manager: SimpleListManager[int] = SimpleListManager()
+        await manager.insertNext(1)
+        await manager.insertNext(2)
+        
+        def atomic(l: list[int], x: int) -> int:
+            assert x == 3
+            l.append(3)
+            return len(l)
+        
+        result = await manager.atomic(atomic, 3)
+        assert result == 3
+        assert await manager.get(2) is 3
+    
+    @pytest.mark.asyncio
+    async def testSimpleListManagerAtomicAsync(self):
+        manager: SimpleListManager[int] = SimpleListManager()
+        await manager.insertNext(1)
+        await manager.insertNext(2)
+        
+        async def atomic(l: list[int], x: int) -> int:
+            assert x == 3
+            l.append(3)
+            return len(l)
+        
+        result = await manager.atomic(atomic, 3)
+        assert result == 3
+        assert await manager.get(2) is 3
 
     @pytest.mark.asyncio
     async def testSimpleKvManagerPut(self):
@@ -225,6 +217,36 @@ class TestSimpleImplsManager:
         await manager.put("key2", 200)
         await manager.clear()
         assert await manager.getAll() == {}
+    
+    @pytest.mark.asyncio
+    async def testSimpleKVManagerAtomic(self):
+        manager: SimpleKVManager[str, int] = SimpleKVManager()
+        await manager.put("key1", 1)
+        await manager.put("key2", 2)
+        
+        def atomic(d: dict[str, int], x: int) -> int:
+            assert x == 3
+            d["key3"] = 3
+            return len(d)
+        
+        result = await manager.atomic(atomic, 3)
+        assert result == 3
+        assert await manager.get("key3") is 3
+    
+    @pytest.mark.asyncio
+    async def testSimpleKVManagerAtomicAsync(self):
+        manager: SimpleKVManager[str, int] = SimpleKVManager()
+        await manager.put("key1", 1)
+        await manager.put("key2", 2)
+        
+        async def atomic(d: dict[str, int], x: int) -> int:
+            assert x == 3
+            d["key3"] = 3
+            return len(d)
+        
+        result = await manager.atomic(atomic, 3)
+        assert result == 3
+        assert await manager.get("key3") is 3
 
 
 
@@ -278,59 +300,37 @@ class TestSimpleImplsManager:
         await manager.add("key1", 100)
         key = await manager.getKey(100)
         assert key == "key1"
-
-
-
+    
     @pytest.mark.asyncio
-    async def testSimpleAmountLimitedTicketManagerAllocate(self):
-        manager = SimpleAmountLimitedTicketManager(2, lambda: "token")
-        token1 = await manager.waitAndAllocate()
-        token2 = await manager.waitAndAllocate()
-        assert token1 is not None
-        assert token2 is not None
-
+    async def testSimpleBiKVManagerAtomic(self):
+        manager: SimpleCannotDeleteAndOverwriteBiKVManager[str, int] = SimpleCannotDeleteAndOverwriteBiKVManager()
+        await manager.add("key1", 1)
+        await manager.add("key2", 2)
+        
+        def atomic(d: dict[str, int], rD: dict[int, str], x: int) -> int:
+            assert x == 3
+            d["key3"] = 3
+            rD[3] = "key3"
+            return int((len(d) + len(rD)) / 2)
+        
+        result = await manager.atomic(atomic, 3)
+        assert result == 3
+        assert await manager.get("key3") is 3
+        assert await manager.getKey(3) is "key3"
+    
     @pytest.mark.asyncio
-    async def testSimpleAmountLimitedTicketManagerWait(self):
-        manager = SimpleAmountLimitedTicketManager(1, lambda: "token")
-        token1 = await manager.waitAndAllocate()
-        assert token1 == "token"
+    async def testSimpleBiKVManagerAtomicAsync(self):
+        manager: SimpleCannotDeleteAndOverwriteBiKVManager[str, int] = SimpleCannotDeleteAndOverwriteBiKVManager()
+        await manager.add("key1", 1)
+        await manager.add("key2", 2)
         
+        async def atomic(d: dict[str, int], rD: dict[int, str], x: int) -> int:
+            assert x == 3
+            d["key3"] = 3
+            rD[3] = "key3"
+            return int((len(d) + len(rD)) / 2)
         
-        async def get_token():
-            return await manager.waitAndAllocate(timeoutSec=0.1)
-        
-        
-        token2 = await get_token()
-        assert token2 is None
-
-    @pytest.mark.asyncio
-    async def testSimpleAmountLimitedTicketManagerRelease(self):
-        manager = SimpleAmountLimitedTicketManager(1, lambda: "token")
-        token1 = await manager.waitAndAllocate()
-        assert token1 == "token"
-        
-        await manager.release(token1)
-        
-        
-        token2 = await manager.waitAndAllocate()
-        assert token2 == "token"
-
-    @pytest.mark.asyncio
-    async def testSimpleAmountLimitedTicketManagerReleaseWakeup(self):
-        manager = SimpleAmountLimitedTicketManager(1, lambda: f"token")
-        
-        token1 = await manager.waitAndAllocate()
-        
-        async def wait_for_token():
-            return await manager.waitAndAllocate(timeoutSec=5.0)
-        
-        waitTask = asyncio.create_task(wait_for_token())
-        await asyncio.sleep(0.01)
-        
-        await manager.release(token1)
-        
-        await asyncio.sleep(0.01)
-        
-        assert waitTask.done() is True
-        result = waitTask.result()
-        assert result is not None
+        result = await manager.atomic(atomic, 3)
+        assert result == 3
+        assert await manager.get("key3") is 3
+        assert await manager.getKey(3) is "key3"

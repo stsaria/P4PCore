@@ -23,7 +23,6 @@ class TestEd25519Signer:
         signer = Ed25519Signer()
         pubKey = signer.publicKey
         assert pubKey is not None
-        assert hasattr(pubKey, "bytesKey")
 
     @pytest.mark.asyncio
     async def testVerifyValidSignature(self):

@@ -8,14 +8,14 @@ from P4PCore.core.SecureNet import SecureNet
 from P4PCore.event.CalledEndFunctionOfRunnerEvent import CalledEndFunctionOfRunnerEvent
 from P4PCore.event.CalledBeginFunctionOfRunnerEvent import CalledBeginFunctionOfRunnerEvent
 from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteBiKVManager, SimpleListManager
+from P4PCore.model.Ed25519Signer import Ed25519Signer
 from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 from P4PCore.model.NetConfig import NetConfig
 from P4PCore.core.Net import Net
 from P4PCore.manager.Events import Events
-from P4PCore.model.Settings import Settings
 
 class P4PRunner(HasLoop):
-    _settings:Settings
+    _ed25519Signer:Ed25519Signer
     _net:Net
     _secureNet:SecureNet
     _pingPongNet:PingPongNet
@@ -26,15 +26,15 @@ class P4PRunner(HasLoop):
     _startedLock:Lock
     _logger:Logger
     @classmethod
-    async def create(cls, settings:Settings) -> "P4PRunner":
+    async def create(cls, ed25519Signer:Ed25519Signer | None = None) -> "P4PRunner":
         inst = cls()
 
-        inst._settings = settings
+        inst._ed25519Signer = ed25519Signer or Ed25519Signer()
         inst._loggerHandlers = SimpleListManager()
         inst._events = Events()
-        inst._net = Net(NetConfig(addrV4=inst._settings.v4ListeningAddr, addrV6=inst._settings.v6ListeningAddr), inst._events)
+        inst._net = Net(inst._events)
         inst._addrToEd25519PubKeys = SimpleCannotDeleteAndOverwriteBiKVManager()
-        inst._secureNet = await SecureNet.create(inst._net, inst._settings.ed25519Signer, inst.getLogger, inst._addrToEd25519PubKeys, inst._events)
+        inst._secureNet = await SecureNet.create(inst._net, inst._ed25519Signer, inst._addrToEd25519PubKeys, inst._events)
         inst._pingPongNet = await PingPongNet.create(inst._net, inst._events)
         inst._loggerHandlers = SimpleListManager()
         inst._started = False
@@ -55,14 +55,11 @@ class P4PRunner(HasLoop):
         """
         return self._events
     @property
-    def settings(self) -> Settings:
+    def ed25519Signer(self) -> Ed25519Signer:
         """
         Settings for P4P in this instance and its subordinates instances.
         """
-        return self._settings
-    @settings.setter
-    def settings(self, settings:Settings) -> None:
-        self._settings = settings
+        return self._ed25519Signer
     @property
     def secureNet(self) -> SecureNet:
         """
@@ -94,11 +91,9 @@ class P4PRunner(HasLoop):
         """
         await self._net.begin()
         await self._events.triggerEvent(CalledBeginFunctionOfRunnerEvent())
-        self._logger.debug(f"Starting P4P : {id(self)} / Ed25519 public key hex: {self._settings.ed25519Signer.publicKey.bytesKey.hex()}")
     async def end(self) -> None:
         """
         End the instance's all.
         """
         await self._net.end()
         await self._events.triggerEvent(CalledEndFunctionOfRunnerEvent())
-        self._logger.debug(f"Ended P4P : {id(self)}")
