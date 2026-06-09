@@ -11,12 +11,21 @@ class SecureNetFinishedToHelloOnRecverEvent(P4PEvent):
     @staticmethod
     def isAsync() -> bool:
         return True
+
     def __init__(self, addr:tuple[str, int], result:SecureNetFinishedToHelloOnRecverEventResult):
         self._addr:tuple[str, int] = addr
         self._result:SecureNetFinishedToHelloOnRecverEventResult = result
+
     @property
     def addr(self) -> tuple[str, int]:
+        """
+        Sender's address
+        """
         return self._addr
+
     @property
     def result(self) -> SecureNetFinishedToHelloOnRecverEventResult:
+        """
+        Result of hello
+        """
         return self._result

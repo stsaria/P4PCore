@@ -1,8 +1,6 @@
 import asyncio
-import os
 from typing import Hashable
 
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 ED25519_KEY_SIZE = 32

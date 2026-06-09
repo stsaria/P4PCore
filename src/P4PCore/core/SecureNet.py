@@ -1,13 +1,10 @@
 import os
 import asyncio
-from logging import Logger
 from enum import auto as a
-from typing import Awaitable, Callable
 from uuid import UUID
 
 from P4PCore.event.NetLikeRecvedEvent import NetLikeRecvedEvent
 from P4PCore.event.SecureNetFinishedToHelloOnRecverEvent import SecureNetFinishedToHelloOnRecverEvent, SecureNetFinishedToHelloOnRecverEventResult
-from P4PCore.event.NetOccurredUnhandledExceptionEvent import NetOccurredUnhandledExceptionEvent
 from P4PCore.event.SecureNetOverflowedEncrypterSeqOnRecverEvent import SecureNetOverflowedEncrypterSeqOnRecverEvent
 from P4PCore.event.SecureNetOverflowedEncrypterSeqOnSenderEvent import SecureNetOverflowedEncrypterSeqOnSenderEvent
 from P4PCore.event.SecureNetStartedToHelloOnRecver import SecureNetStartedToHelloOnRecver
@@ -21,7 +18,7 @@ from P4PCore.model.Response import Response
 from P4PCore.model.NodeIdentify import NodeIdentify
 from P4PCore.manager.WaitingResponses import WaitingResponses
 from P4PCore.model.WaitingResponse import WaitingResponse
-from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo, WAITING_RESPONSE_INFO_KEY
+from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
 from P4PCore.core.Net import Net
 from P4PCore.util.BytesCoverter import *
 from P4PCore.protocol.Protocol import *
@@ -39,8 +36,6 @@ class SecureNet(NetHandler, NetHandlerRegistry):
 
     _addrToEd25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey]
     _events:Events
-
-    _logger:Logger
     @classmethod
     async def create(
         cls,
@@ -330,3 +325,4 @@ class SecureNet(NetHandler, NetHandlerRegistry):
             await target(data, addr)
         except CancelException:
             pass
+

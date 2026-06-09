@@ -10,7 +10,6 @@ from P4PCore.event.CalledBeginFunctionOfRunnerEvent import CalledBeginFunctionOf
 from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteBiKVManager, SimpleListManager
 from P4PCore.model.Ed25519Signer import Ed25519Signer
 from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
-from P4PCore.model.NetConfig import NetConfig
 from P4PCore.core.Net import Net
 from P4PCore.manager.Events import Events
 

@@ -2,9 +2,7 @@ import pytest
 
 from P4PCore.core.PingPongNet import PingPongNet
 from P4PCore.manager.Events import Events
-from P4PCore.util.BytesCoverter import itob
 from P4PCore.core.Net import Net
-from P4PCore.model.NetConfig import NetConfig
 
 
 class TestPingPongNet:

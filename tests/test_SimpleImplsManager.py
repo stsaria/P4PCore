@@ -1,4 +1,3 @@
-import asyncio
 import pytest
 from P4PCore.manager.SimpleImpls import *
 

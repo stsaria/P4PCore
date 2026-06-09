@@ -1,7 +1,5 @@
 import asyncio
-import logging
 
-from P4PCore.abstract.NetHandler import NetHandler
 from P4PCore.core.Net import Net
 from P4PCore.event.NetLikeRecvedEvent import NetLikeRecvedEvent
 from P4PCore.manager.Events import EventListener, Events

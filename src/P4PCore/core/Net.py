@@ -10,7 +10,6 @@ from P4PCore.interface.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.manager.Events import Events
 from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteKVManager
 from P4PCore.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize, PacketFlag
-from P4PCore.model.NetConfig import NetConfig
 from P4PCore.util import BytesSplitter
 from P4PCore.util.BytesCoverter import btoi
 

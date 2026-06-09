@@ -37,7 +37,7 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
     @encryptSeqWindowSize.setter
     def encryptSeqWindowSize(self, windowSize:int) -> None:
         if windowSize <= 0:
-            return ValueError("windowSize > 0")
+            raise ValueError("windowSize > 0")
         self._encryptSeqWindowSize = windowSize
     @property
     def timeoutSecOnHello(self) -> float:
@@ -49,5 +49,5 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
     @timeoutSecOnHello.setter
     def timeoutSecOnHello(self, timeoutSec:float) -> None:
         if timeoutSec < 0:
-            return ValueError("timeoutSec >= 0")
+            raise ValueError("timeoutSec >= 0")
         self._timeoutSecOnHello = timeoutSec

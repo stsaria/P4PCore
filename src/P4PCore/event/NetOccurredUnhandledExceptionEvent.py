@@ -6,15 +6,31 @@ class NetOccurredUnhandledExceptionEvent(P4PEvent):
         self._data = data
         self._addr = addr
         self._recvedTime = recvedTime
+
     @property
     def exception(self) -> Exception:
+        """
+        Unhandled exception that occurred during packet processing
+        """
         return self._exception
+
     @property
     def data(self) -> bytes:
+        """
+        Received data
+        """
         return self._data
+
     @property
     def addr(self) -> tuple[str, int]:
+        """
+        Sender's address
+        """
         return self._addr
+
     @property
     def recvedTime(self) -> float:
+        """
+        Receive timestamp
+        """
         return self._recvedTime

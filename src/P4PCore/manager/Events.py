@@ -1,5 +1,5 @@
 import asyncio
-from typing import Callable, Generic, Type
+from typing import Callable, Type
 import typing
 
 from P4PCore.manager.SimpleImpls import SimpleCannotDeleteKVManager
