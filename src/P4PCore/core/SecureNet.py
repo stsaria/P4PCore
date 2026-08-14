@@ -3,7 +3,8 @@ import asyncio
 from enum import auto as a
 from uuid import UUID
 
-from P4PCore.event.NetLikeRecvedEvent import NetLikeRecvedEvent
+from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
+from P4PCore.core.UserNet import UserNet
 from P4PCore.event.SecureNetFinishedToHelloOnRecverEvent import SecureNetFinishedToHelloOnRecverEvent, SecureNetFinishedToHelloOnRecverEventResult
 from P4PCore.event.SecureNetOverflowedEncrypterSeqOnRecverEvent import SecureNetOverflowedEncrypterSeqOnRecverEvent
 from P4PCore.event.SecureNetOverflowedEncrypterSeqOnSenderEvent import SecureNetOverflowedEncrypterSeqOnSenderEvent
@@ -13,7 +14,6 @@ from P4PCore.exception import CancelException
 from P4PCore.model.Ed25519Signer import Ed25519Signer
 from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 from P4PCore.abstract.NetHandler import NetHandler
-from P4PCore.interface.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.model.Response import Response
 from P4PCore.model.NodeIdentify import NodeIdentify
 from P4PCore.manager.WaitingResponses import WaitingResponses
@@ -31,7 +31,7 @@ class SecureNet(NetHandler, NetHandlerRegistry):
     _ed25519Signer:Ed25519Signer
     _waitingResponses:WaitingResponses
     _encrypters:SimpleCannotOverwriteKVManager[tuple[str, int], X25519AndAesgcmEncrypter]
-    _handlers:SimpleCannotDeleteAndOverwriteKVManager[UUID, NetHandler]
+    _handlers:SimpleSetManager[NetHandler]
     _helloingAddrs:SimpleSetManager[tuple[str, int]]
 
     _addrToEd25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey]
@@ -40,6 +40,7 @@ class SecureNet(NetHandler, NetHandlerRegistry):
     async def create(
         cls,
         net:Net,
+        userNet:UserNet,
         ed25519Signer:Ed25519Signer,
         addrToed25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey],
         events:Events
@@ -50,25 +51,21 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         inst._ed25519Signer = ed25519Signer
         inst._waitingResponses = WaitingResponses()
         inst._encrypters = SimpleCannotOverwriteKVManager()
-        inst._handlers = SimpleCannotDeleteAndOverwriteKVManager()
+        inst._handlers = SimpleSetManager()
         inst._helloingAddrs = SimpleSetManager()
 
         inst._addrToEd25519PublicKeys = addrToed25519PublicKeys
         inst._events = events
 
-        await inst._net.registerHandler(PacketFlag.SECURE, inst)
+        if not await userNet.registerHandler(itob(PacketFlag.SECURE, PacketElementSize.PACKET_FLAG), inst):
+            raise Exception("Cannot register for NetHandler. May be another handler registered for the same flag.")
+
         return inst
-    async def registerHandler(self, flag:UUID, handler:NetHandler) -> bool:
+    async def registerHandler(self, handler:NetHandler) -> bool:
         """
-        Register a handler for handling secure packets with the given app flag.
+        Register a handler for handling secure packets.
         """
-        return await self._handlers.add(flag, handler)
-    @property
-    def rawNet(self) -> Net:
-        """
-        The raw net object.
-        """
-        return self._net
+        return await self._handlers.add(handler)
     class HelloResult(IntEnum):
         SUCCESS = a()
         NET_HAS_STAERED_YET = a()
@@ -182,7 +179,48 @@ class SecureNet(NetHandler, NetHandlerRegistry):
 
     async def getAddrs(self) -> list[tuple[str, int]]:
         return list((await self._encrypters.getAll()).keys())
-    
+
+    async def _recvHelloForTask(
+        self, 
+        addr:tuple[str, int],
+        sendersPubKey:HashableEd25519PublicKey, 
+        sendersResponseIdentify:bytes, 
+        sendersChallengeToken:bytes
+    ) -> None:
+        try:
+            await self._events.triggerEvent(startedEvent := SecureNetStartedToHelloOnRecver(addr))
+
+            encrypter = X25519AndAesgcmEncrypter(False, startedEvent.encryptSeqWindowSize)
+            async with self._waitingResponses.open(
+                WaitingResponse[tuple[HashableEd25519PublicKey, bytes], bytes](
+                    WaitingResponseInfo(addr),
+                    (sendersPubKey, nextChallengetoken := os.urandom(ANY_UNIQUE_RANDOM_BYTES_SIZE))
+                )
+            ) as c:
+                for _ in range(startedEvent.helloVolume):
+                    self._net.sendTo(
+                        (
+                            itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
+                            +itob(ModeFlag.RESP_HELLO, SecurePacketElementSize.MODE_FLAG)
+                            +sendersResponseIdentify
+                            +c.waitingResponse.waitingResponseInfo.identify
+                            +(signEndPart := nextChallengetoken+encrypter.myX25519PublicKeyBytes+encrypter.salt)
+                            +await self._ed25519Signer.sign(sendersChallengeToken+signEndPart)
+                        ),
+                        addr
+                    )
+                    if (r := await c.waitingResponse.waitAndGet(startedEvent.timeoutSecOnHello)) and r.value:
+                        await self._helloingAddrs.remove(addr)
+                        break
+            if not r:
+                await self._events.triggerEvent(SecureNetFinishedToHelloOnRecverEvent(addr, SecureNetFinishedToHelloOnRecverEventResult.FAILED_CHALLENGE))
+                return
+            await self._addrToEd25519PublicKeys.add(addr, sendersPubKey)
+            await encrypter.derive(r.value)
+            await self._encrypters.add(addr, encrypter)
+            await self._events.triggerEvent(SecureNetFinishedToHelloOnRecverEvent(addr, SecureNetFinishedToHelloOnRecverEventResult.SUCCESS))
+        finally:
+            await self._helloingAddrs.remove(addr)
     async def _recvHello(self, data:bytes, addr:tuple[str, int]) -> None:
         if not await self._helloingAddrs.add(addr):
             return
@@ -202,37 +240,9 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         if pk := await self._addrToEd25519PublicKeys.get(addr) and not pk == sendersPubKey:
             return
 
-        await self._events.triggerEvent(startedEvent := SecureNetStartedToHelloOnRecver(addr))
-
-        encrypter = X25519AndAesgcmEncrypter(False, startedEvent.encryptSeqWindowSize)
-        async with self._waitingResponses.open(
-            WaitingResponse[tuple[HashableEd25519PublicKey, bytes], bytes](
-                WaitingResponseInfo(addr),
-                (sendersPubKey, nextChallengetoken := os.urandom(ANY_UNIQUE_RANDOM_BYTES_SIZE))
-            )
-        ) as c:
-            for _ in range(startedEvent.helloVolume):
-                self._net.sendTo(
-                    (
-                        itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
-                        +itob(ModeFlag.RESP_HELLO, SecurePacketElementSize.MODE_FLAG)
-                        +sendersResponseIdentify
-                        +c.waitingResponse.waitingResponseInfo.identify
-                        +(signEndPart := nextChallengetoken+encrypter.myX25519PublicKeyBytes+encrypter.salt)
-                        +await self._ed25519Signer.sign(sendersChallengeToken+signEndPart)
-                    ),
-                    addr
-                )
-                if (r := await c.waitingResponse.waitAndGet(startedEvent.timeoutSecOnHello)) and r.value:
-                    await self._helloingAddrs.remove(addr)
-                    break
-        if not r:
-            await self._events.triggerEvent(SecureNetFinishedToHelloOnRecverEvent(addr, SecureNetFinishedToHelloOnRecverEventResult.FAILED_CHALLENGE))
-            return
-        await self._addrToEd25519PublicKeys.add(addr, sendersPubKey)
-        await encrypter.derive(r.value)
-        await self._encrypters.add(addr, encrypter)
-        await self._events.triggerEvent(SecureNetFinishedToHelloOnRecverEvent(addr, SecureNetFinishedToHelloOnRecverEventResult.SUCCESS))
+        asyncio.create_task(
+            self._recvHelloForTask(addr, sendersPubKey, sendersResponseIdentify, sendersChallengeToken)
+        )
     async def _recvRespHello(self, data:bytes, addr:tuple[str, int]) -> None:
         myResponseIdentify, nextResponseIdentify, nextChallengeToken, recversX25519PubKeyB, aesSalt, recversSigned = BytesSplitter.split(
             data, 
@@ -286,21 +296,9 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         except EncrypterOverflowException as encrypter:
             await self._events.triggerEvent(SecureNetOverflowedEncrypterSeqOnRecverEvent(encrypter.seqWhenOverflowed, encrypter.originalData, addr))
             return
-        if len(data) < SecurePacketElementSize.CONTENT_UUID:
-            return
-        contentUuid, data = BytesSplitter.split(
-            data,
-            SecurePacketElementSize.CONTENT_UUID,
-            includeRest=True
-        )
-        if (h := await self._handlers.get(UUID(bytes=contentUuid))) is None:
-            return
-        await h.handle(data, addr)
+        for handler in await self._handlers.getAll():
+            await handler.handle(data, addr)
     async def handle(self, data:bytes, addr:tuple[str, int]) -> None:
-        recvedTime = asyncio.get_running_loop().time()
-        await self._events.triggerEvent(e := NetLikeRecvedEvent(self, data, addr, recvedTime))
-        if e.isCancelled:
-            return
         if len(data) < SecurePacketElementSize.MODE_FLAG:
             return
         modeFlag, data = BytesSplitter.split(

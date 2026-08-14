@@ -11,15 +11,11 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
         self._timeoutSecOnHello:float = 5
     @property
     def addr(self) -> tuple[str, int]:
-        """
-        Sender's address
-        """
         return self._addr
     @property
     def helloVolume(self) -> int:
         """
         Number of retransmissions
-        volume > 0
         """
         return self._helloVolume
     @helloVolume.setter
@@ -31,7 +27,6 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
     def encryptSeqWindowSize(self) -> int:
         """
         Acceptable limits of udp jitter on encryption
-        windowSize > 0
         """
         return self._encryptSeqWindowSize
     @encryptSeqWindowSize.setter
@@ -43,7 +38,6 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
     def timeoutSecOnHello(self) -> float:
         """
         Timeout seconds on hello
-        timeoutSec >= 0
         """
         return self._timeoutSecOnHello
     @timeoutSecOnHello.setter

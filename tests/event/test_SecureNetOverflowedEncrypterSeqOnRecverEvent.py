@@ -29,7 +29,7 @@ class TestSecureNetOverflowedEncrypterSeqOnRecverEvent:
                 l.append(1)
         await runner.eventsManager.registerListener(OnSecureNetOverflowedEncrypterSeqOnRecverListener())
 
-        addr = runner.secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")
+        addr = runner.net._protocolV4.transport.get_extra_info("sockname")
         await runner2.secureNet.hello(
             NodeIdentify(
                 ip=addr[0],
@@ -37,10 +37,10 @@ class TestSecureNetOverflowedEncrypterSeqOnRecverEvent:
                 hashableEd25519PublicKey=runner.ed25519Signer.publicKey
             )
         )
-        
-        await asyncio.sleep(1)
 
-        encrypter = runner.secureNet._encrypters._dict[runner2.secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")]
+        await asyncio.sleep(0.1)
+
+        encrypter = runner.secureNet._encrypters._dict[runner2.net._protocolV4.transport.get_extra_info("sockname")]
         encrypter._encryptSeqLimits = MAX_SEQ_OF_SECURE_NET-1
 
         encrypter2 = runner2.secureNet._encrypters._dict[addr]
@@ -49,7 +49,7 @@ class TestSecureNetOverflowedEncrypterSeqOnRecverEvent:
 
         await runner2.secureNet.sendToSecure(b"test", addr)
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
 
         assert l == [1]
 

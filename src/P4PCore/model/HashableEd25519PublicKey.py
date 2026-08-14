@@ -3,8 +3,6 @@ from typing import Hashable
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-ED25519_KEY_SIZE = 32
-
 class HashableEd25519PublicKey(Hashable):
     def __init__(self, publicKeyBytes:bytes):
         self._publicKey:Ed25519PublicKey = Ed25519PublicKey.from_public_bytes(publicKeyBytes)

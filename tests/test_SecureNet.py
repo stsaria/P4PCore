@@ -18,8 +18,7 @@ class TestSecureNet:
         
         handler = DummyHandler()
         flag = uuid4()
-        result = await runner.secureNet.registerHandler(flag, handler)
-        assert result is True
+        assert await runner.secureUserNet.registerHandler(flag, handler)
 
 class TestSecureNetCommunication:
     @pytest.mark.asyncio
@@ -37,7 +36,7 @@ class TestSecureNetCommunication:
         assert await secureNet2.hello(
             NodeIdentify(
                 ip="127.0.0.1",
-                port=secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")[1],
+                port=runner.net._protocolV4.transport.get_extra_info("sockname")[1],
                 hashableEd25519PublicKey=runner.ed25519Signer.publicKey
             )
         ) == runner2.secureNet.HelloResult.SUCCESS
@@ -45,9 +44,8 @@ class TestSecureNetCommunication:
         assert await secureNet.getAddrs()
         assert await secureNet2.getAddrs()
     @pytest.mark.asyncio
-    async def testSecureNetCommunication(self):
+    async def testSecureUserNetCommunication(self):
         runner = await P4PRunner.create()
-        secureNet = runner.secureNet
         class TestNetHandler(NetHandler):
             def __init__(self):
                 self.receivedData = []
@@ -58,7 +56,7 @@ class TestSecureNetCommunication:
                 self.receivedAddr.append(addr)
         handler = TestNetHandler()
         handlerFlag = uuid4()
-        await secureNet.registerHandler(handlerFlag, handler)
+        assert await runner.secureUserNet.registerHandler(handlerFlag.bytes, handler)
         await runner.begin()
         await asyncio.sleep(0.1)
 
@@ -69,7 +67,7 @@ class TestSecureNetCommunication:
 
         netNI = NodeIdentify(
             ip="127.0.0.1",
-            port=secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")[1],
+            port=runner.net._protocolV4.transport.get_extra_info("sockname")[1],
             hashableEd25519PublicKey=runner.ed25519Signer.publicKey
         )
         await secureNet2.hello(netNI)

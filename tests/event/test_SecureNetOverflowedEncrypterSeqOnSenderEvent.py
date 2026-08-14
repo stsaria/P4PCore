@@ -14,7 +14,7 @@ class TestSecureNetOverflowedEncrypterSeqOnSenderEvent:
         runner = await P4PRunner.create()
         await runner.begin()
 
-        addr = runner.secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")
+        addr = runner.net._protocolV4.transport.get_extra_info("sockname")
 
         runner2 = await P4PRunner.create()
 
@@ -34,7 +34,7 @@ class TestSecureNetOverflowedEncrypterSeqOnSenderEvent:
 
         await runner2.begin()
 
-        addr = runner.secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")
+        addr = runner.net._protocolV4.transport.get_extra_info("sockname")
         await runner2.secureNet.hello(
             NodeIdentify(
                 ip=addr[0],
@@ -42,13 +42,9 @@ class TestSecureNetOverflowedEncrypterSeqOnSenderEvent:
                 hashableEd25519PublicKey=runner.ed25519Signer.publicKey
             )
         )
-        
-        await asyncio.sleep(1)
 
         runner2.secureNet._encrypters._dict[addr]._seq = MAX_SEQ_OF_SECURE_NET
         await runner2.secureNet.sendToSecure(b"test", addr)
-
-        await asyncio.sleep(1)
 
         assert l == [1]
 

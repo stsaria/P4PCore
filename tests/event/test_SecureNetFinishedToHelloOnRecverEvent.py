@@ -32,7 +32,7 @@ class TestSecureNetFinishedToHelloOnRecverEvent:
         runner2 = await P4PRunner.create()
         await runner2.begin()
 
-        addr = runner.secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")
+        addr = runner.net._protocolV4.transport.get_extra_info("sockname")
 
         assert await runner2.secureNet.hello(
             NodeIdentify(
@@ -68,7 +68,7 @@ class TestSecureNetFinishedToHelloOnRecverEvent:
         runner2 = await P4PRunner.create()
         await runner2.begin()
 
-        runner2.secureNet.rawNet.sendTo(
+        runner2.net.sendTo(
             itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
             +itob(ModeFlag.HELLO, SecurePacketElementSize.MODE_FLAG)
             +b"\x00" * (
@@ -76,7 +76,7 @@ class TestSecureNetFinishedToHelloOnRecverEvent:
                 +ANY_UNIQUE_RANDOM_BYTES_SIZE
             )
             +runner2.ed25519Signer.publicKey.publicKeyBytes,
-            runner.secureNet.rawNet._protocolV4.transport.get_extra_info("sockname")
+            runner.net._protocolV4.transport.get_extra_info("sockname")
         )
 
         await asyncio.sleep(1)
