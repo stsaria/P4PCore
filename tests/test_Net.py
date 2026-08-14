@@ -1,6 +1,7 @@
 import pytest
 import asyncio
 
+from P4PCore.P4PRunner import P4PRunner
 from P4PCore.abstract.NetHandler import NetHandler
 from P4PCore.core.Net import Net
 from P4PCore.manager.Events import Events
@@ -57,7 +58,7 @@ class TestNetHandlerCommunication:
             async def handle(self, data: bytes, _: tuple[str, int]) -> None:
                 self.receivedData.append(data)
         handler = TestNetHandler()
-        assert await net.registerHandler(PacketFlag.PINGPONG, handler)
+        assert await net.registerHandler(handler)
 
         await net.begin()
         await asyncio.sleep(0.1)
@@ -70,7 +71,7 @@ class TestNetHandlerCommunication:
 
         testData = b"Hello, Net!"
 
-        assert net2.sendTo(itob(PacketFlag.PINGPONG.value, PacketElementSize.PACKET_FLAG) + testData, net._protocolV4.transport.get_extra_info("sockname"))
+        assert net2.sendTo(testData, net._protocolV4.transport.get_extra_info("sockname"))
         await asyncio.sleep(0.1)
         assert len(handler.receivedData) == 1
         assert handler.receivedData[0] == testData

@@ -4,5 +4,5 @@ from P4PCore.abstract.NetHandler import NetHandler
 
 T = TypeVar("T")
 
-class NetHandlerRegistry(Protocol[T]):
+class NetHandlerFlagRegistry(Protocol[T]):
     async def registerHandler(self, flag:T, handler:NetHandler) -> bool: ...

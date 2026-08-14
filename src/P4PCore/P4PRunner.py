@@ -5,6 +5,7 @@ from logging import Handler, Logger
 from P4PCore.abstract.HasLoop import HasLoop
 from P4PCore.core.PingPongNet import PingPongNet
 from P4PCore.core.SecureNet import SecureNet
+from P4PCore.core.UserNet import UserNet
 from P4PCore.event.CalledEndFunctionOfRunnerEvent import CalledEndFunctionOfRunnerEvent
 from P4PCore.event.CalledBeginFunctionOfRunnerEvent import CalledBeginFunctionOfRunnerEvent
 from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteBiKVManager, SimpleListManager
@@ -12,10 +13,13 @@ from P4PCore.model.Ed25519Signer import Ed25519Signer
 from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 from P4PCore.core.Net import Net
 from P4PCore.manager.Events import Events
+from P4PCore.protocol.Protocol import PacketFlag, PacketElementSize
+from P4PCore.util.BytesCoverter import itob
 
 class P4PRunner(HasLoop):
     _ed25519Signer:Ed25519Signer
     _net:Net
+    _baseUserNet:UserNet
     _secureNet:SecureNet
     _pingPongNet:PingPongNet
     _addrToEd25519PubKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey]
@@ -24,21 +28,32 @@ class P4PRunner(HasLoop):
     _started:bool
     _startedLock:Lock
     _logger:Logger
+
+    _userNet:UserNet
+    _secureUserNet:UserNet
     @classmethod
     async def create(cls, ed25519Signer:Ed25519Signer | None = None) -> "P4PRunner":
+        """
+        Create a new instance of P4PRunner.
+        """
         inst = cls()
 
         inst._ed25519Signer = ed25519Signer or Ed25519Signer()
         inst._loggerHandlers = SimpleListManager()
         inst._events = Events()
         inst._net = Net(inst._events)
+        inst._baseUserNet = await UserNet.create(PacketElementSize.PACKET_FLAG, registry=inst._net)
         inst._addrToEd25519PubKeys = SimpleCannotDeleteAndOverwriteBiKVManager()
-        inst._secureNet = await SecureNet.create(inst._net, inst._ed25519Signer, inst._addrToEd25519PubKeys, inst._events)
-        inst._pingPongNet = await PingPongNet.create(inst._net, inst._events)
+        inst._secureNet = await SecureNet.create(inst._net, inst._baseUserNet, inst._ed25519Signer, inst._addrToEd25519PubKeys, inst._events)
+        inst._pingPongNet = await PingPongNet.create(inst._net, inst._baseUserNet)
         inst._loggerHandlers = SimpleListManager()
         inst._started = False
         inst._startedLock = Lock()
         inst._logger = await inst.getLogger(__name__)
+
+        inst._userNet = await UserNet.create(PacketElementSize.UUID)
+        await inst._baseUserNet.registerHandler(itob(PacketFlag.USER, PacketElementSize.PACKET_FLAG), inst._userNet)
+        inst._secureUserNet = await UserNet.create(PacketElementSize.UUID, registry=inst._secureNet)
         
         return inst
     @property
@@ -59,6 +74,12 @@ class P4PRunner(HasLoop):
         Settings for P4P in this instance and its subordinates instances.
         """
         return self._ed25519Signer
+    @property
+    def net(self) -> Net:
+        """
+        A net instance.
+        """
+        return self._net
     @property
     def secureNet(self) -> SecureNet:
         """
@@ -84,6 +105,18 @@ class P4PRunner(HasLoop):
         logger = logging.getLogger(name)
         logger.handlers = await self._loggerHandlers.getAll()
         return logger
+    @property
+    def userNet(self) -> UserNet:
+        """
+        A net instance for user communications in this instance and its subordinates instances.
+        """
+        return self._userNet
+    @property
+    def secureUserNet(self) -> UserNet:
+        """
+        A net instance for secure user communications in this instance and its subordinates instances.
+        """
+        return self._secureUserNet
     async def begin(self) -> None:
         """
         Begin the instance's all.

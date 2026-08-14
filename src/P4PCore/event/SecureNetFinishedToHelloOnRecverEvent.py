@@ -18,14 +18,8 @@ class SecureNetFinishedToHelloOnRecverEvent(P4PEvent):
 
     @property
     def addr(self) -> tuple[str, int]:
-        """
-        Sender's address
-        """
         return self._addr
 
     @property
     def result(self) -> SecureNetFinishedToHelloOnRecverEventResult:
-        """
-        Result of hello
-        """
         return self._result
