@@ -29,6 +29,7 @@ class PacketElementSize:
     PACKET_FLAG=1
     MODE_FLAG=1
     SEQ=8
+    UUID=16
 
 MAX_SEQ_OF_SECURE_NET = (1 << PacketElementSize.SEQ*8)-1
 
@@ -39,11 +40,11 @@ class SecurePacketElementSize(PacketElementSize):
     ED25519_SIGN=64
     X25519_PUBLIC_KEY=32
     AES_SALT=ANY_UNIQUE_RANDOM_BYTES_SIZE
-    CONTENT_UUID=16
 
 class PacketFlag(IntEnum):
     PINGPONG = 1
     SECURE = 2
+    USER = 3
 
 class ModeFlag(IntEnum):
     PING = 1

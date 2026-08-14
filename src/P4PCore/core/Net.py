@@ -4,14 +4,11 @@ from asyncio import DatagramTransport, DatagramProtocol, Semaphore
 
 from P4PCore.abstract.HasLoop import HasLoop
 from P4PCore.abstract.NetHandler import NetHandler
-from P4PCore.event.NetLikeRecvedEvent import NetLikeRecvedEvent
+from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.event.NetOccurredUnhandledExceptionEvent import NetOccurredUnhandledExceptionEvent
-from P4PCore.interface.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.manager.Events import Events
-from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteKVManager
-from P4PCore.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize, PacketFlag
-from P4PCore.util import BytesSplitter
-from P4PCore.util.BytesCoverter import btoi
+from P4PCore.manager.SimpleImpls import SimpleSetManager
+from P4PCore.protocol.Protocol import MAGIC, SOCKET_BUFFER
 
 class NetServerProtocol(DatagramProtocol):
     def __init__(self, net:Net):
@@ -21,23 +18,10 @@ class NetServerProtocol(DatagramProtocol):
     def connection_made(self, transport:DatagramTransport):
         self.transport = transport
     async def _arecved(self, data:bytes, addr:tuple[str, int], recvedTime:float) -> None:
-        await self._net._events.triggerEvent(e := NetLikeRecvedEvent(self._net, data, addr, recvedTime))
-        if e.isCancelled:
-            return
-        packetFlag, mainData = BytesSplitter.split(
-            data,
-            PacketElementSize.PACKET_FLAG,
-            includeRest=True
-        )
-        try:
-            packetFlag = PacketFlag(btoi(packetFlag))
-        except ValueError:
-            return
-        if not (handler := await self._net._handlers.get(packetFlag)):
-            return
         async with self._net._sem:
             try:
-                await handler.handle(mainData, addr)
+                for handler in await self._net._handlers.getAll():
+                    await handler.handle(data, addr)
             except Exception as e:
                 await self._net._events.triggerEvent(NetOccurredUnhandledExceptionEvent(e, data, addr, recvedTime))
     def datagram_received(self, data:bytes, addr:tuple[str, int]) -> None:
@@ -52,7 +36,7 @@ class Net(NetHandlerRegistry, HasLoop):
     def __init__(self, events:Events) -> None:
         self._events:Events = events
 
-        self._handlers:SimpleCannotDeleteAndOverwriteKVManager[PacketFlag, NetHandler] = SimpleCannotDeleteAndOverwriteKVManager()
+        self._handlers:SimpleSetManager[NetHandler] = SimpleSetManager()
 
         self._protocolV4:NetServerProtocol = None
         self._protocolV6:NetServerProtocol = None
@@ -78,9 +62,12 @@ class Net(NetHandlerRegistry, HasLoop):
     @semaphoreLimits.setter
     def semaphoreLimits(self, semaphoreLimits:int) -> int:
         self._semaphoreLimits = semaphoreLimits
-    async def registerHandler(self, packetFlag:PacketFlag, handler:NetHandler) -> bool:
-        return await self._handlers.add(packetFlag, handler)
+    async def registerHandler(self, handler:NetHandler) -> bool:
+        return await self._handlers.add(handler)
     def sendTo(self, data:bytes, addr:tuple[str, int]) -> bool:
+        """
+        Send data to the specified address. The address can be either IPv4 or IPv6. The data will be sent with a magic prefix to ensure that it is recognized by the receiving end.
+        """
         if not (p := (self._protocolV6 if ':' in addr[0] else self._protocolV4)):
             return False
         elif not (t := p.transport):
@@ -89,6 +76,9 @@ class Net(NetHandlerRegistry, HasLoop):
         return True
 
     def isRunning(self) -> bool:
+        """
+        Check if the Net server is running. It checks both IPv4 and IPv6 protocols to determine if either is active. If either protocol is running, the server is considered to be running.
+        """
         v4Running = v4T.is_closing() is False if ((v4 := self._protocolV4) and (v4T := v4.transport)) else False
         v6Running = v6T.is_closing() is False if ((v6 := self._protocolV6) and (v6T := v6.transport)) else False
         return v4Running or v6Running # If v4Running is False and v4is_closing() is True, v6 may be not supported by system but net is still running, so use "or" instead of "and". The opposite is a very special enviroment at present but this line may be correct for the future.

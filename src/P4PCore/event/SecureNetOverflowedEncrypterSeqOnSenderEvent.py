@@ -12,21 +12,12 @@ class SecureNetOverflowedEncrypterSeqOnSenderEvent(P4PEvent):
 
     @property
     def seqWhenOverflowed(self) -> int:
-        """
-        Sequence number when the overflow occurred
-        """
         return self._seqWhenOverflowed
 
     @property
     def originalData(self) -> bytes:
-        """
-        Original data that caused the overflow
-        """
         return self._originalData
 
     @property
     def addr(self) -> tuple[str, int]:
-        """
-        Receiver's address
-        """
         return self._addr

@@ -1,8 +1,9 @@
 import asyncio
+import logging
+import sys
 
 from P4PCore.core.Net import Net
-from P4PCore.event.NetLikeRecvedEvent import NetLikeRecvedEvent
-from P4PCore.manager.Events import EventListener, Events
+from P4PCore.core.UserNet import UserNet
 from P4PCore.manager.WaitingResponses import WaitingResponses
 from P4PCore.model.Response import Response
 from P4PCore.model.WaitingResponse import WaitingResponse
@@ -10,24 +11,27 @@ from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
 from P4PCore.protocol.Protocol import *
 from P4PCore.util import BytesSplitter
 from P4PCore.util.BytesCoverter import *
+from P4PCore.abstract.NetHandler import NetHandler
 
-class PingPongNet:
+class PingPongNet(NetHandler):
     _net:Net
-    _events:Events
     _waitingResponses:WaitingResponses
     @classmethod
-    async def create(cls, net:Net, events:Events) -> "PingPongNet":
+    async def create(cls, net:Net, userNet:UserNet) -> "PingPongNet":
         inst = cls()
 
         inst._net = net
-        inst._events = events
         inst._waitingResponses = WaitingResponses()
 
-        await events.registerListener(inst)
+        if not await userNet.registerHandler(itob(PacketFlag.PINGPONG, PacketElementSize.PACKET_FLAG), inst):
+            raise Exception("Cannot register for NetHandler. May be another handler registered for the same flag.")
 
         return inst
     
     async def ping(self, addr:tuple[str, int], timeoutSecs:int | None = None) -> float | None:
+        """
+        Send a ping to the specified address and wait for a pong response. The method returns the round-trip time in seconds if the pong is received within the specified timeout. If the pong is not received within the timeout or if there is an error sending the ping, the method returns None.
+        """
         async with self._waitingResponses.open(
             WaitingResponse(WaitingResponseInfo(addr))
         ) as c:
@@ -42,40 +46,27 @@ class PingPongNet:
             if not (r := await c.waitingResponse.waitAndGet(timeoutSecs)):
                 return None
             return r.value - startTime
-    @EventListener
-    async def recvedNet(self, event:NetLikeRecvedEvent) -> None:
-        if not event.netLikeInst is self._net:
-            return
-        
-        data, addr = event.data, event.addr
+    async def handle(self, data:bytes, addr:tuple[str, int]) -> None:
+        now = asyncio.get_running_loop().time()
         if len(data) < (
-            PacketElementSize.PACKET_FLAG
-            +PacketElementSize.MODE_FLAG
+            PacketElementSize.MODE_FLAG
             +PacketElementSize.RESPONSE_IDENTIFY
         ):
             return
-        packetFlag, modeFlag, responseId = BytesSplitter.split(
+        modeFlag, responseId = BytesSplitter.split(
             data,
-            PacketElementSize.PACKET_FLAG,
             PacketElementSize.MODE_FLAG,
             PacketElementSize.RESPONSE_IDENTIFY
         )
-        if btoi(packetFlag) != PacketFlag.PINGPONG.value:
-            return
-        
         modeFlag = btoi(modeFlag)
-
         if modeFlag == ModeFlag.PING.value:
             self._net.sendTo(
-                packetFlag
+                itob(PacketFlag.PINGPONG, PacketElementSize.PACKET_FLAG)
                 +itob(ModeFlag.PONG, PacketElementSize.MODE_FLAG)
                 +responseId,
                 addr
             )
         elif modeFlag == ModeFlag.PONG.value:
-            if wR := await self._waitingResponses.get((addr, responseId)):
-                wR.setResponse(Response(event.recvedTime))
-
-        event.cancel()
-
+            if waitingResponse := await self._waitingResponses.get((addr, responseId)):
+                waitingResponse.setResponse(Response(now))
 
