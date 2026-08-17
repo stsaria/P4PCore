@@ -23,4 +23,4 @@ dev = [
 where = ["src"]
 
 [tool.setuptools_scm]
-version_scheme = "post-release"
+version_scheme = "guess-next-dev"
