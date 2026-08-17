@@ -41,7 +41,7 @@ class Gossiper(NetHandler, HasLoop):
         uuidFlag:UUID,
         gossipLength:int,
         maximumGossipCountPerMessage:int,
-        getAddrsFunc:Callable[[], set[tuple[str, int]]],
+        getAddrsFunc:Callable[[], Awaitable[set[tuple[str, int]]]],
         gossipRecvedEventClass:Type[GossipRecvedEvent],
         gossipDeletedByGcEventClass:Type[GossipDeletedByGcEvent],
         gossipTTLSeconds:float=7.0,
@@ -93,6 +93,12 @@ class Gossiper(NetHandler, HasLoop):
         Add a new gossip message to the gossiper.
         """
         return await self._gossipBytesToFoundTimesAndAddrs.atomic(self._addGossipForAtomic, gossipB, addr)
+
+    async def deleteGossip(self, gossipB:bytes) -> bool:
+        """
+        Delete a gossip message from the gossiper.
+        """
+        return bool(await self._gossipBytesToFoundTimesAndAddrs.delete(gossipB))
 
     async def getAllGossipData(self) -> list[bytes]:
         """
