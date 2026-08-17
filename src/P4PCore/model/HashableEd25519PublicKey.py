@@ -16,6 +16,7 @@ class HashableEd25519PublicKey(Hashable):
             return True
         except Exception:
             return False
+    
     async def verify(self, signed:bytes, data:bytes) -> bool:
         return await asyncio.to_thread(self._verify, signed, data)
 
