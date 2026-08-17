@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - d
-  release:
-    types: [published]
+    tags:
+      - '[0-9]+.*'
 
 permissions:
   contents: write
