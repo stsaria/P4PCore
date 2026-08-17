@@ -36,7 +36,7 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name == 'release'
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -57,8 +57,11 @@ jobs:
       - name: Build package
         run: |
           python -m build
-
-      - name: Upload Artifacts to GitHub Release
+      - name: Create GitHub Release and Upload Artifacts
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc') }}
           files: dist/*
