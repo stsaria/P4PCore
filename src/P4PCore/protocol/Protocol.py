@@ -4,7 +4,7 @@ ENDIAN = "big"
 
 MAGIC = b"P4P"
 
-PROTOCOL_VER = 4
+PROTOCOL_VER = 5
 
 MAGIC += PROTOCOL_VER.to_bytes(4)
 
