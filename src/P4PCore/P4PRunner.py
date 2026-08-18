@@ -81,6 +81,12 @@ class P4PRunner(HasLoop):
         """
         return self._net
     @property
+    def baseUserNet(self) -> UserNet:
+        """
+        The base net instance for user communications in this instance and its subordinates instances.
+        """
+        return self._baseUserNet
+    @property
     def secureNet(self) -> SecureNet:
         """
         A net instance for secure communications in this instance and its subordinates instances.
