@@ -98,11 +98,12 @@ class P4PRunner(HasLoop):
         A manager that stores handlers used by all logger in this instance and its subordinates instances.
         """
         return self._loggerHandlers
-    async def getLogger(self, name:str) -> Logger:
+    async def getLogger(self, name:str, level:int=logging.INFO) -> Logger:
         """
         Get a logger instance standard of this instnace.
         """
         logger = logging.getLogger(name)
+        logger.setLevel(level)
         logger.handlers = await self._loggerHandlers.getAll()
         return logger
     @property
