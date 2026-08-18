@@ -31,7 +31,7 @@ class Gossiper(NetHandler, HasLoop):
 
     _gossipTTLSeconds:float
     _syncPeerCountPerOneTime:int
-    _syncIntervalSec:float
+    _syncIntervalSeconds:float
     _maximumSavedDataCount:int
 
     @classmethod
@@ -46,7 +46,7 @@ class Gossiper(NetHandler, HasLoop):
         gossipDeletedByGcEventClass:Type[GossipDeletedByGcEvent],
         gossipTTLSeconds:float=7.0,
         syncPeerCountPerOneTime:int=6,
-        syncIntervalSec:float=5.0,
+        syncIntervalSeconds:float=5.0,
         maximumSavedDataCount:int=100
     ) -> "Gossiper":
         """
@@ -68,13 +68,13 @@ class Gossiper(NetHandler, HasLoop):
             raise ValueError("gossipTTLSeconds > 0")
         elif syncPeerCountPerOneTime <= 0:
             raise ValueError("syncPeerCountPerOneTime > 0")
-        elif syncIntervalSec < 0:
+        elif syncIntervalSeconds < 0:
             raise ValueError("syncIntervalSec >= 0")
         elif maximumSavedDataCount <= 0:
             raise ValueError("maximumSavedDataCount > 0")
         inst._gossipTTLSeconds = gossipTTLSeconds
         inst._syncPeerCountPerOneTime = syncPeerCountPerOneTime
-        inst._syncIntervalSec = syncIntervalSec
+        inst._syncIntervalSeconds = syncIntervalSeconds
         inst._maximumSavedDataCount = maximumSavedDataCount
 
         await inst._runner.userNet.registerHandler(inst._uuidFlag.bytes, inst)
@@ -164,7 +164,7 @@ class Gossiper(NetHandler, HasLoop):
         while True:
             await self.sync()
 
-            await asyncio.sleep(self._syncIntervalSec)
+            await asyncio.sleep(self._syncIntervalSeconds)
 
     async def begin(self) -> None:
         """

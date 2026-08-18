@@ -86,12 +86,12 @@ class TestGossiper:
         gossiper = await Gossiper.create(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
             GossipRecvedEvent, GossipDeletedByGcEvent,
-            syncIntervalSec=0.1, gossipTTLSeconds=10
+            syncIntervalSeconds=0.1, gossipTTLSeconds=10
         )
         gossiper2 = await Gossiper.create(
             runner2, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
             GossipRecvedEvent, GossipDeletedByGcEvent,
-            syncIntervalSec=0.1, gossipTTLSeconds=10
+            syncIntervalSeconds=0.1, gossipTTLSeconds=10
         )
         
         await runner2.begin()
