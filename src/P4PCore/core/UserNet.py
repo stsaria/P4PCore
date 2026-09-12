@@ -1,12 +1,12 @@
 from P4PCore.abstract.NetHandler import NetHandler
 from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.interface.NetHandlerFlagRegistry import NetHandlerFlagRegistry
-from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteKVManager
+from P4PCore.manager.SimpleImpls import SimpleCannotOverwriteKVManager
 from P4PCore.util import BytesSplitter
 
 class UserNet(NetHandler, NetHandlerFlagRegistry):
     _flagSize:int
-    _handlers:SimpleCannotDeleteAndOverwriteKVManager[bytes, NetHandler]
+    _handlers:SimpleCannotOverwriteKVManager[bytes, NetHandler]
 
     @classmethod
     async def create(cls, flagSize:int, registry:NetHandlerRegistry | None = None) -> "UserNet":
@@ -15,7 +15,7 @@ class UserNet(NetHandler, NetHandlerFlagRegistry):
         if flagSize <= 0:
             raise ValueError("flagSize > 0")
         inst._flagSize= flagSize
-        inst._handlers = SimpleCannotDeleteAndOverwriteKVManager()
+        inst._handlers = SimpleCannotOverwriteKVManager()
 
         if registry:
             if not await registry.registerHandler(inst):
@@ -25,10 +25,16 @@ class UserNet(NetHandler, NetHandlerFlagRegistry):
 
     async def registerHandler(self, flag:bytes, handler:NetHandler) -> bool:
         """
-        Register a new NetHandler for a given flag.
+        Register a new NetHandler for a given flag. Returns True if the handler was registered successfully, False if a handler for the same flag already exists.
         """
         return await self._handlers.add(flag, handler)
 
+    async def deleteHandler(self, flag:bytes) -> NetHandler | None:
+        """
+        Delete a NetHandler from the registry for a given flag. Returns the deleted handler if it existed, None otherwise.
+        """
+        return await self._handlers.delete(flag)
+    
     async def handle(self, data:bytes, addr:tuple[str, int]) -> None:
         if len(data) < self._flagSize:
             return

@@ -13,7 +13,6 @@ class DummyNetHandler(NetHandler):
     async def handle(self, data: bytes, addr: tuple[str, int]) -> None:
         self.handledData.append((data, addr))
 
-
 class TestUserNet:
     @pytest.mark.asyncio
     async def testRegisterAndDispatch(self):
@@ -80,5 +79,20 @@ class TestUserNet:
 
         addr = ("127.0.0.1", 12345)
         await userNet.handle(flagUnregistered + b"some data", addr)
+
+        assert len(handler.handledData) == 0
+
+    @pytest.mark.asyncio
+    async def testDeleteHandler(self):
+        userNet = await UserNet.create(FLAG_SIZE)
+
+        flag = os.urandom(FLAG_SIZE)
+        handler = DummyNetHandler()
+
+        assert await userNet.registerHandler(flag, handler) is True
+        assert await userNet.deleteHandler(flag) is handler
+
+        addr = ("127.0.0.1", 12345)
+        await userNet.handle(flag + b"some data", addr)
 
         assert len(handler.handledData) == 0

@@ -61,11 +61,13 @@ class SecureNet(NetHandler, NetHandlerRegistry):
             raise Exception("Cannot register for NetHandler. May be another handler registered for the same flag.")
 
         return inst
+    
     async def registerHandler(self, handler:NetHandler) -> bool:
         """
         Register a handler for handling secure packets.
         """
         return await self._handlers.add(handler)
+    
     class HelloResult(IntEnum):
         SUCCESS = a()
         NET_HAS_STAERED_YET = a()
