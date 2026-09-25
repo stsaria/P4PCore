@@ -5,8 +5,6 @@ import typing
 from P4PCore.manager.SimpleImpls import SimpleCannotDeleteKVManager
 from P4PCore.abstract.P4PEvent import P4PEvent
 
-_pendingInsts:list[object] = []
-
 class Events:
     """
     Manage event listeners and dispatch matching events to them.
@@ -16,8 +14,6 @@ class Events:
         Initialize the event registry.
         """
         self._events:SimpleCannotDeleteKVManager[Type[P4PEvent], Callable] = SimpleCannotDeleteKVManager()
-        for inst in _pendingInsts:
-            asyncio.run(self.registerListener(inst))
     async def registerListener(self, inst:object) -> None:
         """
         Register an instance to listen to events.
