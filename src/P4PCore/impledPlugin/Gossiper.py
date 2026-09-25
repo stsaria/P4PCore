@@ -18,6 +18,7 @@ from P4PCore.abstract.HasLoop import HasLoop
 
 
 class Gossiper(NetHandler, HasLoop):
+    """Coordinate gossip propagation and garbage collection across peers in the P4P network."""
     _runner:P4PRunner
     _uuidFlag:UUID
     _gossipLength:int
@@ -108,19 +109,25 @@ class Gossiper(NetHandler, HasLoop):
 
     async def addGossip(self, gossipB:bytes, addr:tuple[str, int] | None = None) -> bool:
         """
-        Add a new gossip message to the gossiper.
+        Add a gossip payload to the local store.
+        :param gossipB: The gossip payload to add.
+        :param addr: The sender address associated with the gossip payload, if known.
+        :return: True if the payload was added successfully; otherwise False.
         """
         return await self._gossipBytesToFoundTimesAndAddrs.atomic(self._addGossipForAtomic, gossipB, addr)
 
     async def deleteGossip(self, gossipB:bytes) -> bool:
         """
-        Delete a gossip message from the gossiper.
+        Remove a gossip payload from the local store.
+        :param gossipB: The gossip payload to remove.
+        :return: True if the payload was removed; otherwise False.
         """
         return bool(await self._gossipBytesToFoundTimesAndAddrs.delete(gossipB))
 
     async def getAllGossipData(self) -> list[bytes]:
         """
-        Get all gossip data from the gossiper.
+        Return all currently stored gossip payloads.
+        :return: A list of all gossip payloads currently tracked by the gossiper.
         """
         return list(await self._gossipBytesToFoundTimesAndAddrs.getAll())
 
@@ -153,7 +160,6 @@ class Gossiper(NetHandler, HasLoop):
     async def sync(self) -> None:
         """
         Synchronize gossip messages with a random selection of nodes.
-        This method retrieves all current gossip messages and a list of node addresses, then sends a subset of the gossip messages to a random selection of nodes. The number of nodes and the number of gossip messages sent are limited by the configuration parameters.
         """
         await self._gc()
 
@@ -186,14 +192,13 @@ class Gossiper(NetHandler, HasLoop):
 
     async def begin(self) -> None:
         """
-        Start the gossiper's synchronization task.
-        If you want to see details about the gossiper, you should only call Gossiper.sync.
+        Start the background gossip synchronization task.
         """
         self._syncerTask = asyncio.create_task(self._syncer())
 
     async def end(self) -> None:
         """
-        End the gossiper's synchronization task.
+        Stop the background gossip synchronization task.
         """
         if not self._syncerTask:
             return
