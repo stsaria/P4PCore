@@ -30,9 +30,10 @@ class Gossiper(NetHandler, HasLoop):
     _syncerTask:Task
 
     _gossipTTLSeconds:float
-    _syncPeerCountPerOneTime:int
+    _syncNodeCountPerOneTime:int
     _syncIntervalSeconds:float
     _maximumSavedDataCount:int
+    _requiredGossip:bytes
 
     @classmethod
     async def create(
@@ -45,12 +46,26 @@ class Gossiper(NetHandler, HasLoop):
         gossipRecvedEventClass:Type[GossipRecvedEvent],
         gossipDeletedByGcEventClass:Type[GossipDeletedByGcEvent],
         gossipTTLSeconds:float=7.0,
-        syncPeerCountPerOneTime:int=6,
+        syncNodeCountPerOneTime:int=6,
         syncIntervalSeconds:float=5.0,
-        maximumSavedDataCount:int=100
+        maximumSavedDataCount:int=100,
+        requiredGossip:bytes=b""
     ) -> "Gossiper":
         """
         Create a new instance of the Gossiper class
+        :param runner: The P4PRunner instance to use for networking and event management.
+        :param uuidFlag: A UUID flag to identify the gossiper in the network.
+        :param gossipLength: The length of each gossip message in bytes.
+        :param maximumGossipCountPerMessage: The maximum number of gossip messages to send in one message.
+        :param getAddrsFunc: A callable that returns a set of node addrs.
+        :param gossipRecvedEventClass: The class to use for the GossipRecvedEvent.
+        :param gossipDeletedByGcEventClass: The class to use for the GossipDeletedByGcEvent.
+        :param gossipTTLSeconds: The time-to-live for each gossip message in seconds (> 0).
+        :param syncNodeCountPerOneTime: The number of nodes to synchronize with in one time (> 0).
+        :param syncIntervalSeconds: The interval between synchronization attempts in seconds (>= 0).
+        :param maximumSavedDataCount: The maximum number of gossip messages to save. (> 0)
+        :param requiredGossip: The gossip message that is required to be shared every time (% gossipLength == 0).
+        :return: An instance of the Gossiper class.
         """
         inst = cls()
         inst._runner = runner
@@ -66,16 +81,19 @@ class Gossiper(NetHandler, HasLoop):
 
         if gossipTTLSeconds <= 0:
             raise ValueError("gossipTTLSeconds > 0")
-        elif syncPeerCountPerOneTime <= 0:
-            raise ValueError("syncPeerCountPerOneTime > 0")
+        elif syncNodeCountPerOneTime <= 0:
+            raise ValueError("syncNodeCountPerOneTime > 0")
         elif syncIntervalSeconds < 0:
             raise ValueError("syncIntervalSec >= 0")
         elif maximumSavedDataCount <= 0:
             raise ValueError("maximumSavedDataCount > 0")
+        elif len(requiredGossip) % gossipLength != 0:
+            raise ValueError("len(requiredGossip) % gossipLength == 0")
         inst._gossipTTLSeconds = gossipTTLSeconds
-        inst._syncPeerCountPerOneTime = syncPeerCountPerOneTime
+        inst._syncNodeCountPerOneTime = syncNodeCountPerOneTime
         inst._syncIntervalSeconds = syncIntervalSeconds
         inst._maximumSavedDataCount = maximumSavedDataCount
+        inst._requiredGossip = requiredGossip
 
         await inst._runner.userNet.registerHandler(inst._uuidFlag.bytes, inst)
 
@@ -108,13 +126,12 @@ class Gossiper(NetHandler, HasLoop):
 
     async def handle(self, data:bytes, addr:tuple[str, int]) -> None:
         addedCount = 0
-        while len(data) >= self._gossipLength and addedCount <= self._maximumGossipCountPerMessage:
+        while addedCount <= self._maximumGossipCountPerMessage:
             gossipB, data = BytesSplitter.split(data, self._gossipLength, includeRest=True)
-            if await self.addGossip(gossipB, addr):
-                addedCount += 1
-                await self._runner.eventsManager.triggerEvent(
-                    self._gossipRecvedEventClass(gossipB, addr)
-                )
+            addedCount += 1
+            await self._runner.eventsManager.triggerEvent(
+                self._gossipRecvedEventClass(gossipB, addr)
+            )
 
     async def _gc(self) -> None:
         now = asyncio.get_running_loop().time()
@@ -135,8 +152,8 @@ class Gossiper(NetHandler, HasLoop):
 
     async def sync(self) -> None:
         """
-        Synchronize gossip messages with a random selection of peers.
-        This method retrieves all current gossip messages and a list of peer addresses, then sends a subset of the gossip messages to a random selection of peers. The number of peers and the number of gossip messages sent are limited by the configuration parameters.
+        Synchronize gossip messages with a random selection of nodes.
+        This method retrieves all current gossip messages and a list of node addresses, then sends a subset of the gossip messages to a random selection of nodes. The number of nodes and the number of gossip messages sent are limited by the configuration parameters.
         """
         await self._gc()
 
@@ -148,16 +165,17 @@ class Gossiper(NetHandler, HasLoop):
         if not addrs:
             return
         
-        for addr in random.sample(addrs, min(self._syncPeerCountPerOneTime, len(addrs))):
+        for addr in random.sample(addrs, min(self._syncNodeCountPerOneTime, len(addrs))):
             selectedGossips = random.sample(
                 gossips,
                 min(self._maximumGossipCountPerMessage, len(gossips))
             )
-            payload = b"".join(
+            payload = self._requiredGossip + b"".join(
                 gossip[0]
                 for gossip in selectedGossips
                 if gossip[1][1] != addr
             )
+            
             self._gossip(addr, payload)
 
     async def _syncer(self) -> None:

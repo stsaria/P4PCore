@@ -14,10 +14,19 @@ from P4PCore.util.BytesCoverter import *
 from P4PCore.abstract.NetHandler import NetHandler
 
 class PingPongNet(NetHandler):
+    """
+    Provide a simple ping-pong request/response protocol over the main network.
+    """
     _net:Net
     _waitingResponses:WaitingResponses
     @classmethod
     async def create(cls, net:Net, userNet:UserNet) -> "PingPongNet":
+        """
+        Create a ping-pong network handler and register it with the user network.
+        :param net: The underlying network instance through which ping and pong packets are sent.
+        :param userNet: The user network registry used to register this handler.
+        :return: The initialized PingPongNet instance.
+        """
         inst = cls()
 
         inst._net = net
@@ -30,7 +39,10 @@ class PingPongNet(NetHandler):
     
     async def ping(self, addr:tuple[str, int], timeoutSecs:int | None = None) -> float | None:
         """
-        Send a ping to the specified address and wait for a pong response. The method returns the round-trip time in seconds if the pong is received within the specified timeout. If the pong is not received within the timeout or if there is an error sending the ping, the method returns None.
+        Send a ping to the specified address and wait for a pong response.
+        :param addr: The target address to ping.
+        :param timeoutSecs: The maximum time allowed to wait for a pong response.
+        :return: The round-trip time in seconds, or None if no response is received.
         """
         async with self._waitingResponses.open(
             WaitingResponse(WaitingResponseInfo(addr))

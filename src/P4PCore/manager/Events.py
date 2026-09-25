@@ -8,15 +8,20 @@ from P4PCore.abstract.P4PEvent import P4PEvent
 _pendingInsts:list[object] = []
 
 class Events:
+    """
+    Manage event listeners and dispatch matching events to them.
+    """
     def __init__(self):
+        """
+        Initialize the event registry.
+        """
         self._events:SimpleCannotDeleteKVManager[Type[P4PEvent], Callable] = SimpleCannotDeleteKVManager()
         for inst in _pendingInsts:
             asyncio.run(self.registerListener(inst))
     async def registerListener(self, inst:object) -> None:
         """
         Register an instance to listen to events.
-        
-        The instance in argument should have methods decorated with @EventListener, and the type hint of the first argument of these methods should be a subclass of P4PEvent.
+        :param inst: The instance whose methods are decorated with @EventListener.
         """
         for n in dir(inst):
             m = getattr(inst, n)
@@ -31,6 +36,7 @@ class Events:
     async def triggerEvent(self, event:P4PEvent) -> None:
         """
         Trigger an event. All the listeners registered to listen to this type of event will be called.
+        :param event: The event instance to trigger.
         """
         callbacks = await self._events.get(type(event))
         if not callbacks:
@@ -46,5 +52,8 @@ class Events:
                 callback(event)
 
 def EventListener(func:Callable) -> Callable:
+    """
+    Mark a method as a listener for a specific P4P event type.
+    """
     setattr(func, "_isAEventListener", True)
     return func

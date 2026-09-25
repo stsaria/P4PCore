@@ -17,6 +17,12 @@ from P4PCore.protocol.Protocol import PacketFlag, PacketElementSize
 from P4PCore.util.BytesCoverter import itob
 
 class P4PRunner(HasLoop):
+    """
+    The Runner class is the main class of P4P. It manages the network, events, and other core functionalities.
+    
+    Basically, you most start you program with P4PRunner.begin() and end it with P4PRunner.end() (for saving resources and preventing errors).
+    So, if you want to set the timing of starting and ending, you should handle the event CalledBeginFunctionOfRunnerEvent and CalledEndFunctionOfRunnerEvent.
+    """
     _ed25519Signer:Ed25519Signer
     _net:Net
     _baseUserNet:UserNet
@@ -35,6 +41,8 @@ class P4PRunner(HasLoop):
     async def create(cls, ed25519Signer:Ed25519Signer | None = None) -> "P4PRunner":
         """
         Create a new instance of P4PRunner.
+        :param ed25519Signer: An optional Ed25519Signer instance. If not provided, a new instance will be created.
+        :return: An instance of P4PRunner.
         """
         inst = cls()
 
@@ -84,6 +92,7 @@ class P4PRunner(HasLoop):
     def baseUserNet(self) -> UserNet:
         """
         The base net instance for user communications in this instance and its subordinates instances.
+        If you want to disable default function for user communications(e.g. SecureNet) or want to put your own function in lower layer, you can use this instance.
         """
         return self._baseUserNet
     @property
@@ -127,12 +136,14 @@ class P4PRunner(HasLoop):
     async def begin(self) -> None:
         """
         Begin the instance's all.
+        In most cases, this function should be called at first.
         """
         await self._net.begin()
         await self._events.triggerEvent(CalledBeginFunctionOfRunnerEvent())
     async def end(self) -> None:
         """
         End the instance's all.
+        In most cases, this function should be called at last.
         """
         await self._net.end()
         await self._events.triggerEvent(CalledEndFunctionOfRunnerEvent())

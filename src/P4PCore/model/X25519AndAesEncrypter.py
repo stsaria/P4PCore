@@ -11,19 +11,44 @@ from P4PCore.protocol.Protocol import *
 from P4PCore.util.BytesCoverter import itob
 
 class EncrypterOverflowException(OverflowError):
+    """
+    Raised when the encryption sequence number exceeds the configured limit.
+    This class is required at overflowed sequence, but sequence length is uint64, so it won't happen in most cases.
+    """
     def __init__(self, sequenceWhenOverflowed:int, originalData:bytes):
+        """
+        Initialize the overflow exception with the sequence number and original data.
+        :param sequenceWhenOverflowed: The sequence number when the overflow happened.
+        :param originalData: The original data that caused the overflow context.
+        """
         self._sequenceWhenOverflowed = sequenceWhenOverflowed
         self._originalData = originalData
         super().__init__(f"Sequence number already have hit {self._sequenceWhenOverflowed} max")
     @property
     def seqWhenOverflowed(self) -> int:
+        """
+        The sequence number when the overflow occurred.
+        """
         return self._sequenceWhenOverflowed
     @property
     def originalData(self) -> bytes:
+        """
+        The original data associated with the overflow.
+        """
         return self._originalData
 
 class X25519AndAesgcmEncrypter:
+    """
+    Encrypt and decrypt data using X25519 key agreement and AES-GCM with sequence tracking.
+    """
     def __init__(self, amIFirstNodeToHello:bool, encryptSeqWindowSize:int, salt:bytes | None = None, encryptSeqLimits:int = MAX_SEQ_OF_SECURE_NET):
+        """
+        Initialize the encrypter with hello-order and sequence-window settings.
+        :param amIFirstNodeToHello: True when this node initiates the hello exchange, otherwise False.
+        :param encryptSeqWindowSize: The size of the sequence window used to detect duplicate or out-of-order packets.
+        :param salt: Optional salt bytes for key derivation, or None to generate a random one.
+        :param encryptSeqLimits: The maximum valid encryption sequence value.
+        """
         self._amIFirstNodeToHello:bool = amIFirstNodeToHello
         self._encryptSeqWindowSize:int = encryptSeqWindowSize
         self._encryptSeqLimits:int = encryptSeqLimits
@@ -58,6 +83,10 @@ class X25519AndAesgcmEncrypter:
             ).derive(self._sharedSecret)
         )
     async def derive(self, otherPartyX25519PublicKeyBytes:bytes) -> None:
+        """
+        Derive the shared secret and AES key using the peer public key bytes.
+        :param otherPartyX25519PublicKeyBytes: The raw X25519 public key bytes of the peer.
+        """
         oPK = X25519PublicKey.from_public_bytes(
             otherPartyX25519PublicKeyBytes
         )
@@ -65,6 +94,11 @@ class X25519AndAesgcmEncrypter:
             await asyncio.to_thread(self._deriveSharedSecretSyncronized, oPK)
             await asyncio.to_thread(self._deriveAesKeySyncronized, X25519S_SHARED_SECRET_AND_AES_KEY_INFO)
     async def encrypt(self, data:bytes) -> tuple[int, bytes]:
+        """
+        Encrypt data using the derived AES-GCM key and incrementing sequence number.
+        :param data: The plaintext bytes to encrypt.
+        :return: A tuple containing the sequence number and the ciphertext bytes.
+        """
         async with self._secretsLock:
             if self._aesKey is None:
                 raise Exception("Shared secret and AES key are not derived yet.")
@@ -78,6 +112,12 @@ class X25519AndAesgcmEncrypter:
         nonceBA[AESGCM_NONCE_SIZE-PacketElementSize.SEQ:] = itob(seq, PacketElementSize.SEQ)
         return seq, await asyncio.to_thread(self._aesKey.encrypt, bytes(nonceBA), data, None)
     async def decrypt(self, encryptedData:bytes, seq:int) -> bytes | None:
+        """
+        Decrypt data using the sequence number and reject replayed or out-of-window packets.
+        :param encryptedData: The ciphertext bytes to decrypt.
+        :param seq: The sequence number associated with the ciphertext.
+        :return: The decrypted plaintext bytes if valid, otherwise None.
+        """
         async with self._secretsLock:
             if self._aesKey is None:
                 raise Exception("Shared secret and AES key are not derived yet.")
@@ -106,7 +146,13 @@ class X25519AndAesgcmEncrypter:
         return data
     @property
     def salt(self) -> bytes:
+        """
+        The salt bytes used in the HKDF derivation.
+        """
         return self._salt
     @property
     def myX25519PublicKeyBytes(self) -> bytes:
+        """
+        The raw public X25519 key bytes.
+        """
         return self._myX25519PrivateKey.public_key().public_bytes_raw()

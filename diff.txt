@@ -1,0 +1,1850 @@
+diff --git a/src/P4PCore/P4PRunner.py b/src/P4PCore/P4PRunner.py
+index cefc328..4b97454 100644
+--- a/src/P4PCore/P4PRunner.py
++++ b/src/P4PCore/P4PRunner.py
+@@ -17,6 +17,12 @@ from P4PCore.protocol.Protocol import PacketFlag, PacketElementSize
+ from P4PCore.util.BytesCoverter import itob
+ 
+ class P4PRunner(HasLoop):
++    """
++    The Runner class is the main class of P4P. It manages the network, events, and other core functionalities.
++    
++    Basically, you most start you program with P4PRunner.begin() and end it with P4PRunner.end() (for saving resources and preventing errors).
++    So, if you want to set the timing of starting and ending, you should handle the event CalledBeginFunctionOfRunnerEvent and CalledEndFunctionOfRunnerEvent.
++    """
+     _ed25519Signer:Ed25519Signer
+     _net:Net
+     _baseUserNet:UserNet
+@@ -35,6 +41,8 @@ class P4PRunner(HasLoop):
+     async def create(cls, ed25519Signer:Ed25519Signer | None = None) -> "P4PRunner":
+         """
+         Create a new instance of P4PRunner.
++        :param ed25519Signer: An optional Ed25519Signer instance. If not provided, a new instance will be created.
++        :return: An instance of P4PRunner.
+         """
+         inst = cls()
+ 
+@@ -84,6 +92,7 @@ class P4PRunner(HasLoop):
+     def baseUserNet(self) -> UserNet:
+         """
+         The base net instance for user communications in this instance and its subordinates instances.
++        If you want to disable default function for user communications(e.g. SecureNet) or want to put your own function in lower layer, you can use this instance.
+         """
+         return self._baseUserNet
+     @property
+@@ -127,12 +136,14 @@ class P4PRunner(HasLoop):
+     async def begin(self) -> None:
+         """
+         Begin the instance's all.
++        In most cases, this function should be called at first.
+         """
+         await self._net.begin()
+         await self._events.triggerEvent(CalledBeginFunctionOfRunnerEvent())
+     async def end(self) -> None:
+         """
+         End the instance's all.
++        In most cases, this function should be called at last.
+         """
+         await self._net.end()
+         await self._events.triggerEvent(CalledEndFunctionOfRunnerEvent())
+\ No newline at end of file
+diff --git a/src/P4PCore/abstract/P4PEvent.py b/src/P4PCore/abstract/P4PEvent.py
+index 0782af8..8e703b8 100644
+--- a/src/P4PCore/abstract/P4PEvent.py
++++ b/src/P4PCore/abstract/P4PEvent.py
+@@ -5,4 +5,9 @@ class P4PEvent(ABC):
+     Protocol for a P4PEvent.
+     """
+     @staticmethod
+-    def isAsync() -> bool: ...
+\ No newline at end of file
++    def isAsync() -> bool:
++        """
++        Check whether the event should be processed asynchronously.
++        :return: True if the event is asynchronous, otherwise False.
++        """
++        ...
+\ No newline at end of file
+diff --git a/src/P4PCore/core/Net.py b/src/P4PCore/core/Net.py
+index 5c826dd..42cfd22 100644
+--- a/src/P4PCore/core/Net.py
++++ b/src/P4PCore/core/Net.py
+@@ -8,9 +8,9 @@ from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
+ from P4PCore.event.NetOccurredUnhandledExceptionEvent import NetOccurredUnhandledExceptionEvent
+ from P4PCore.manager.Events import Events
+ from P4PCore.manager.SimpleImpls import SimpleSetManager
+-from P4PCore.protocol.Protocol import MAGIC, SOCKET_BUFFER
++from P4PCore.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize
+ 
+-class NetServerProtocol(DatagramProtocol):
++class _NetServerProtocol(DatagramProtocol):
+     def __init__(self, net:Net):
+         self._net:Net = net
+ 
+@@ -33,72 +33,104 @@ class NetServerProtocol(DatagramProtocol):
+         asyncio.create_task(self._arecved(data[len(MAGIC):], addr, recvedTime))
+ 
+ class Net(NetHandlerRegistry, HasLoop):
++    """
++    Manage UDP socket setup, packet dispatch, and network lifecycle for the project.
++    """
+     def __init__(self, events:Events) -> None:
++        """
++        Initialize a network instance with its event manager and handler registry.
++        :param events: The event manager used to emit network exceptions and other events.
++        """
+         self._events:Events = events
+ 
+         self._handlers:SimpleSetManager[NetHandler] = SimpleSetManager()
+ 
+-        self._protocolV4:NetServerProtocol = None
+-        self._protocolV6:NetServerProtocol = None
++        self._protocolV4:_NetServerProtocol = None
++        self._protocolV6:_NetServerProtocol = None
+ 
+         self._v4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0)
+         self._v6ListeningAddr:tuple[str, int] | None = None
+         self._semaphoreLimits:int = 100
+     @property
+     def v4ListeningAddr(self) -> tuple[str, int] | None:
++        """
++        The IPv4 listen address used by the network server.
++        """
+         return self._v4ListeningAddr
+     @v4ListeningAddr.setter
+     def v4ListeningAddr(self, addr:tuple[str, int] | None) -> None:
+         self._v4ListeningAddr = addr
+     @property
+     def v6ListeningAddr(self) -> tuple[str, int] | None:
++        """
++        The IPv6 listen address used by the network server.
++        """
+         return self._v6ListeningAddr
+     @v6ListeningAddr.setter
+     def v6ListeningAddr(self, addr:tuple[str, int] | None) -> None:
+         self._v6ListeningAddr = addr
+     @property
+     def semaphoreLimits(self) -> int:
++        """The maximum concurrency allowed for packet handling."""
+         return self._semaphoreLimits
+     @semaphoreLimits.setter
+     def semaphoreLimits(self, semaphoreLimits:int) -> int:
+         self._semaphoreLimits = semaphoreLimits
+     async def registerHandler(self, handler:NetHandler) -> bool:
++        """
++        Register a network handler to receive incoming packets.
++        :param handler: The handler instance to register.
++        :return: True if the handler was added successfully; otherwise False.
++        """
+         return await self._handlers.add(handler)
+     def sendTo(self, data:bytes, addr:tuple[str, int]) -> bool:
+         """
+-        Send data to the specified address. The address can be either IPv4 or IPv6. The data will be sent with a magic prefix to ensure that it is recognized by the receiving end.
++        Send bytes to the specified address.
++        :param data: The packet payload to send.
++        :param addr: The destination IPv4 or IPv6 address tuple.
++        :return: True if the packet was sent successfully; otherwise False.
+         """
+         if not (p := (self._protocolV6 if ':' in addr[0] else self._protocolV4)):
+             return False
+         elif not (t := p.transport):
+             return False
++        elif PacketElementSize.MAGIC+len(data) > SOCKET_BUFFER:
++            return False
+         t.sendto(MAGIC+data, addr)
+         return True
+ 
+     def isRunning(self) -> bool:
+         """
+-        Check if the Net server is running. It checks both IPv4 and IPv6 protocols to determine if either is active. If either protocol is running, the server is considered to be running.
++        Determine whether the network server is currently running.
++        :return: True if either IPv4 or IPv6 transport is active.
+         """
+         v4Running = v4T.is_closing() is False if ((v4 := self._protocolV4) and (v4T := v4.transport)) else False
+         v6Running = v6T.is_closing() is False if ((v6 := self._protocolV6) and (v6T := v6.transport)) else False
+         return v4Running or v6Running # If v4Running is False and v4is_closing() is True, v6 may be not supported by system but net is still running, so use "or" instead of "and". The opposite is a very special enviroment at present but this line may be correct for the future.
+ 
+     async def begin(self) -> None:
++        """
++        Start the network server on the configured IPv4 and IPv6 listening addresses.
++        """
+         loop = asyncio.get_running_loop()
+         self._sem = Semaphore(self._semaphoreLimits)
+         
+         if self.v4ListeningAddr:
+             _, self._protocolV4 = await loop.create_datagram_endpoint(
+-                lambda: NetServerProtocol(self),
++                lambda: _NetServerProtocol(self),
+                 local_addr=self._v4ListeningAddr
+             )
+         if self.v6ListeningAddr:
+             _, self._protocolV6 = await loop.create_datagram_endpoint(
+-                lambda: NetServerProtocol(self),
++                lambda: _NetServerProtocol(self),
+                 local_addr=self._v6ListeningAddr
+             )
+     
+     async def end(self) -> None:
++        """
++        Stop the network server and close both active transports.
++        :return: None.
++        """
+         if (v4 := self._protocolV4) and (v4T := v4.transport):
+             v4T.close()
+         if (v6 := self._protocolV6) and (v6T := v6.transport):
+diff --git a/src/P4PCore/core/PingPongNet.py b/src/P4PCore/core/PingPongNet.py
+index fbd0f33..0d8224b 100644
+--- a/src/P4PCore/core/PingPongNet.py
++++ b/src/P4PCore/core/PingPongNet.py
+@@ -14,10 +14,19 @@ from P4PCore.util.BytesCoverter import *
+ from P4PCore.abstract.NetHandler import NetHandler
+ 
+ class PingPongNet(NetHandler):
++    """
++    Provide a simple ping-pong request/response protocol over the main network.
++    """
+     _net:Net
+     _waitingResponses:WaitingResponses
+     @classmethod
+     async def create(cls, net:Net, userNet:UserNet) -> "PingPongNet":
++        """
++        Create a ping-pong network handler and register it with the user network.
++        :param net: The underlying network instance through which ping and pong packets are sent.
++        :param userNet: The user network registry used to register this handler.
++        :return: The initialized PingPongNet instance.
++        """
+         inst = cls()
+ 
+         inst._net = net
+@@ -30,7 +39,10 @@ class PingPongNet(NetHandler):
+     
+     async def ping(self, addr:tuple[str, int], timeoutSecs:int | None = None) -> float | None:
+         """
+-        Send a ping to the specified address and wait for a pong response. The method returns the round-trip time in seconds if the pong is received within the specified timeout. If the pong is not received within the timeout or if there is an error sending the ping, the method returns None.
++        Send a ping to the specified address and wait for a pong response.
++        :param addr: The target address to ping.
++        :param timeoutSecs: The maximum time allowed to wait for a pong response.
++        :return: The round-trip time in seconds, or None if no response is received.
+         """
+         async with self._waitingResponses.open(
+             WaitingResponse(WaitingResponseInfo(addr))
+diff --git a/src/P4PCore/core/SecureNet.py b/src/P4PCore/core/SecureNet.py
+index b740d17..843fec6 100644
+--- a/src/P4PCore/core/SecureNet.py
++++ b/src/P4PCore/core/SecureNet.py
+@@ -10,7 +10,6 @@ from P4PCore.event.SecureNetOverflowedEncrypterSeqOnRecverEvent import SecureNet
+ from P4PCore.event.SecureNetOverflowedEncrypterSeqOnSenderEvent import SecureNetOverflowedEncrypterSeqOnSenderEvent
+ from P4PCore.event.SecureNetStartedToHelloOnRecver import SecureNetStartedToHelloOnRecver
+ from P4PCore.manager.Events import Events
+-from P4PCore.exception import CancelException
+ from P4PCore.model.Ed25519Signer import Ed25519Signer
+ from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+ from P4PCore.abstract.NetHandler import NetHandler
+@@ -27,6 +26,9 @@ from P4PCore.model.X25519AndAesEncrypter import EncrypterOverflowException, X255
+ from P4PCore.util import BytesSplitter
+ 
+ class SecureNet(NetHandler, NetHandlerRegistry):
++    """
++    Provide secure peer-to-peer communication with Ed25519/X25519-based and AES handshakes and encryption.
++    """
+     _net:Net
+     _ed25519Signer:Ed25519Signer
+     _waitingResponses:WaitingResponses
+@@ -45,6 +47,15 @@ class SecureNet(NetHandler, NetHandlerRegistry):
+         addrToed25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey],
+         events:Events
+     ) -> "SecureNet":
++        """
++        Create a new secure network handler and register it with the user network.
++        :param net: The underlying network instance to use for secure communication.
++        :param userNet: The user network registry used to register this secure handler.
++        :param ed25519Signer: The signer used to authenticate secure connections.
++        :param addrToed25519PublicKeys: The mapping of addresses to known Ed25519 public keys.
++        :param events: The event manager used for secure network event notifications.
++        :return: The initialized SecureNet instance.
++        """
+         inst = cls()
+ 
+         inst._net = net
+@@ -64,7 +75,9 @@ class SecureNet(NetHandler, NetHandlerRegistry):
+     
+     async def registerHandler(self, handler:NetHandler) -> bool:
+         """
+-        Register a handler for handling secure packets.
++        Register a handler that will receive decrypted secure packets.
++        :param handler: The handler to register for secure packet dispatch.
++        :return: True if the handler was successfully registered; otherwise False.
+         """
+         return await self._handlers.add(handler)
+     
+@@ -77,8 +90,13 @@ class SecureNet(NetHandler, NetHandlerRegistry):
+         FAILED_FIRST_HELLO = a()
+     async def hello(self, nodeIdentify:NodeIdentify, firstHelloAttempts:int=0, secondHelloVolume:int=1, timeoutSec:float | None = None, encryptionSeqWindowSize:int=1) -> HelloResult:
+         """
+-        Connect to the node and return the result of the connection.
+-        After calling this function, you can communicate with the node securely.
++        Establish a secure connection with the given node.
++        :param nodeIdentify: The remote node identity to connect to.
++        :param firstHelloAttempts: The number of first-hello attempts to make before failing.
++        :param secondHelloVolume: The number of second-hello attempts to send once the first stage succeeds.
++        :param timeoutSec: The timeout used while waiting for challenge responses.
++        :param encryptionSeqWindowSize: The sequence window size used by the X25519/AES encrypter.
++        :return: The result of the connection attempt.
+         """
+         if not await self._helloingAddrs.add(nodeIdentify.addr):
+             return self.HelloResult.OTHER_FUNC_IS_ALREADY_TRYING_TO_CONNECT
+@@ -150,8 +168,10 @@ class SecureNet(NetHandler, NetHandlerRegistry):
+         NET_DIDNT_BEGIN = a()
+     async def sendToSecure(self, data:bytes, to:tuple[str, int] | NodeIdentify) -> SendToSecureResult:
+         """
+-        Send data to the node securely.
+-        If the node hasn't connected, this function will return details about the failure.
++        Send encrypted data to the target node.
++        :param data: The plaintext payload to encrypt and send.
++        :param to: The destination address or node identity.
++        :return: The status of the send operation.
+         """
+         if isinstance(to, NodeIdentify):
+             to = to.addr
+@@ -174,12 +194,17 @@ class SecureNet(NetHandler, NetHandlerRegistry):
+         ) else self.SendToSecureResult.NET_DIDNT_BEGIN
+     async def deleteNode(self, node:tuple[str, int] | NodeIdentify) -> bool:
+         """
+-        Delete node from encrypters
+-        Warn: If you deleted node, You can't call sendToSecure method until call hello again.
++        Remove a node from the secure encryption registry.
++        :param node: The node address or identity to delete.
++        :return: True if the node existed and was removed; otherwise False.
+         """
+         await self._encrypters.delete(node.addr if isinstance(node, NodeIdentify) else node)
+ 
+     async def getAddrs(self) -> list[tuple[str, int]]:
++        """
++        Get the addresses of nodes with active secure connections.
++        :return: A list of connected node addresses.
++        """
+         return list((await self._encrypters.getAll()).keys())
+ 
+     async def _recvHelloForTask(
+@@ -321,8 +346,5 @@ class SecureNet(NetHandler, NetHandlerRegistry):
+         }.get(modeFlag)
+         if not target:
+             return
+-        try:
+-            await target(data, addr)
+-        except CancelException:
+-            pass
++        await target(data, addr)
+ 
+diff --git a/src/P4PCore/core/UserNet.py b/src/P4PCore/core/UserNet.py
+index c010b98..9dc3bee 100644
+--- a/src/P4PCore/core/UserNet.py
++++ b/src/P4PCore/core/UserNet.py
+@@ -5,16 +5,25 @@ from P4PCore.manager.SimpleImpls import SimpleCannotOverwriteKVManager
+ from P4PCore.util import BytesSplitter
+ 
+ class UserNet(NetHandler, NetHandlerFlagRegistry):
++    """
++    Route incoming network data to the appropriate registered handler by flag.
++    """
+     _flagSize:int
+     _handlers:SimpleCannotOverwriteKVManager[bytes, NetHandler]
+ 
+     @classmethod
+     async def create(cls, flagSize:int, registry:NetHandlerRegistry | None = None) -> "UserNet":
++        """
++        Create a user network instance and optionally register it with a parent registry.
++        :param flagSize: The byte size of the flag prefix used to route incoming data (> 0).
++        :param registry: The optional registry to register this instance with.
++        :return: The initialized UserNet instance.
++        """
+         inst = cls()
+ 
+         if flagSize <= 0:
+             raise ValueError("flagSize > 0")
+-        inst._flagSize= flagSize
++        inst._flagSize = flagSize
+         inst._handlers = SimpleCannotOverwriteKVManager()
+ 
+         if registry:
+@@ -25,13 +34,18 @@ class UserNet(NetHandler, NetHandlerFlagRegistry):
+ 
+     async def registerHandler(self, flag:bytes, handler:NetHandler) -> bool:
+         """
+-        Register a new NetHandler for a given flag. Returns True if the handler was registered successfully, False if a handler for the same flag already exists.
++        Register a new NetHandler for a given flag.
++        :param flag: The identifying flag bytes used to route incoming packets.
++        :param handler: The handler to register for the flag.
++        :return: True if the handler was registered successfully; otherwise False.
+         """
+         return await self._handlers.add(flag, handler)
+ 
+     async def deleteHandler(self, flag:bytes) -> NetHandler | None:
+         """
+-        Delete a NetHandler from the registry for a given flag. Returns the deleted handler if it existed, None otherwise.
++        Delete a NetHandler for a given flag.
++        :param flag: The flag bytes whose registered handler should be removed.
++        :return: The removed handler, or None if no handler was registered for that flag.
+         """
+         return await self._handlers.delete(flag)
+     
+diff --git a/src/P4PCore/event/GossipDeletedByGcEvent.py b/src/P4PCore/event/GossipDeletedByGcEvent.py
+index e211593..7937c54 100644
+--- a/src/P4PCore/event/GossipDeletedByGcEvent.py
++++ b/src/P4PCore/event/GossipDeletedByGcEvent.py
+@@ -1,16 +1,21 @@
+ from P4PCore.abstract.P4PEvent import P4PEvent
+ 
+ class GossipDeletedByGcEvent(P4PEvent):
+-    """
+-        
+-    It is recommended to extend this class and decouple the implementation.
+-    """
++    """Event fired when a gossip item is removed by the garbage collector."""
+     @staticmethod
+     def isAsync() -> bool:
+         return True
+     def __init__(self, gossipContent:bytes):
++        """
++        Initialize the event with the deleted gossip payload.
++        :param gossipContent: The gossip content that was removed by the GC.
++        """
+         self._gossipContent = gossipContent
+ 
+     @property
+     def gossipContent(self) -> bytes:
++        """
++        Get the deleted gossip payload.
++        :return: The gossip content that was removed.
++        """
+         return self._gossipContent
+\ No newline at end of file
+diff --git a/src/P4PCore/event/GossipRecvedEvent.py b/src/P4PCore/event/GossipRecvedEvent.py
+index 032218a..821c31d 100644
+--- a/src/P4PCore/event/GossipRecvedEvent.py
++++ b/src/P4PCore/event/GossipRecvedEvent.py
+@@ -1,21 +1,31 @@
+ from P4PCore.abstract.P4PEvent import P4PEvent
+ 
+ class GossipRecvedEvent(P4PEvent):
+-    """
+-    
+-    It is recommended to extend this class and decouple the implementation.
+-    """
++    """Event fired when a gossip message is received from a node."""
+     @staticmethod
+     def isAsync() -> bool:
+         return True
+     def __init__(self, gossipContent:bytes, addr:tuple[str, int]):
++        """
++        Initialize the event with the received gossip payload and sender address.
++        :param gossipContent: The gossip payload that was received.
++        :param addr: The address of the node that sent the payload.
++        """
+         self._gossipContent:bytes = gossipContent
+         self._addr:tuple[str, int] = addr
+ 
+     @property
+     def gossipContent(self) -> bytes:
++        """
++        The received gossip payload.
++        :return: The gossip content sent by the node.
++        """
+         return self._gossipContent
+ 
+     @property
+     def addr(self) -> tuple[str, int]:
++        """
++        The sender's address.
++        :return: The address of the sender.
++        """
+         return self._addr
+\ No newline at end of file
+diff --git a/src/P4PCore/event/NetOccurredUnhandledExceptionEvent.py b/src/P4PCore/event/NetOccurredUnhandledExceptionEvent.py
+index 6cc1b93..d7a9082 100644
+--- a/src/P4PCore/event/NetOccurredUnhandledExceptionEvent.py
++++ b/src/P4PCore/event/NetOccurredUnhandledExceptionEvent.py
+@@ -1,7 +1,18 @@
+ from P4PCore.abstract.P4PEvent import P4PEvent
+ 
+ class NetOccurredUnhandledExceptionEvent(P4PEvent):
++    """
++    Event fired when an unhandled exception occurs while processing network data.
++    """
+     def __init__(self, exception:Exception, data:bytes, addr:tuple[str, int], recvedTime:float):
++        """
++        Initialize the event with the exception and received packet details.
++        :param exception: The unhandled exception that was raised.
++        :param data: The raw packet bytes that caused the exception.
++        :param addr: The sender address associated with the packet.
++        :param recvedTime: The time at which the packet was received.
++        :return: None.
++        """
+         self._exception = exception
+         self._data = data
+         self._addr = addr
+@@ -9,16 +20,28 @@ class NetOccurredUnhandledExceptionEvent(P4PEvent):
+ 
+     @property
+     def exception(self) -> Exception:
++        """
++        The exception that occurred.
++        """
+         return self._exception
+ 
+     @property
+     def data(self) -> bytes:
++        """
++        The packet data that caused the exception.
++        """
+         return self._data
+ 
+     @property
+     def addr(self) -> tuple[str, int]:
++        """
++        The sender's address.
++        """
+         return self._addr
+ 
+     @property
+     def recvedTime(self) -> float:
++        """
++        The receive time.
++        """
+         return self._recvedTime
+\ No newline at end of file
+diff --git a/src/P4PCore/event/SecureNetFinishedToHelloOnRecverEvent.py b/src/P4PCore/event/SecureNetFinishedToHelloOnRecverEvent.py
+index 99ab752..9d692f4 100644
+--- a/src/P4PCore/event/SecureNetFinishedToHelloOnRecverEvent.py
++++ b/src/P4PCore/event/SecureNetFinishedToHelloOnRecverEvent.py
+@@ -3,23 +3,40 @@ from enum import Enum, auto
+ from P4PCore.abstract.P4PEvent import P4PEvent
+ 
+ class SecureNetFinishedToHelloOnRecverEventResult(Enum):
++    """
++    Result codes for the secure connection hello process on the receiver side.
++    """
+     SUCCESS = auto()
+     FAILED_CHALLENGE = auto()
+     ALREADY_EXISTS_BUT_DIFFRENT_PUBLIC_KEY = auto()
+ 
+ class SecureNetFinishedToHelloOnRecverEvent(P4PEvent):
++    """
++    Event fired when the receiver finishes the hello handshake for a secure connection.
++    """
+     @staticmethod
+     def isAsync() -> bool:
+         return True
+ 
+     def __init__(self, addr:tuple[str, int], result:SecureNetFinishedToHelloOnRecverEventResult):
++        """
++        Initialize the event with the node address and hello result.
++        :param addr: The node address involved in the hello handshake.
++        :param result: The result of the handshake attempt.
++        """
+         self._addr:tuple[str, int] = addr
+         self._result:SecureNetFinishedToHelloOnRecverEventResult = result
+ 
+     @property
+     def addr(self) -> tuple[str, int]:
++        """
++        The address of the node involved in the hello exchange.
++        """
+         return self._addr
+ 
+     @property
+     def result(self) -> SecureNetFinishedToHelloOnRecverEventResult:
++        """
++        The outcome of the hello handshake attempt.
++        """
+         return self._result
+\ No newline at end of file
+diff --git a/src/P4PCore/event/SecureNetOverflowedEncrypterSeqOnRecverEvent.py b/src/P4PCore/event/SecureNetOverflowedEncrypterSeqOnRecverEvent.py
+index 8e9be43..8a9de85 100644
+--- a/src/P4PCore/event/SecureNetOverflowedEncrypterSeqOnRecverEvent.py
++++ b/src/P4PCore/event/SecureNetOverflowedEncrypterSeqOnRecverEvent.py
+@@ -1,23 +1,42 @@
+ from P4PCore.abstract.P4PEvent import P4PEvent
+ 
+ class SecureNetOverflowedEncrypterSeqOnRecverEvent(P4PEvent):
++    """
++    Event fired when the receiver detects an encryption sequence overflow.
++    This class is required at overflowed sequence, but sequence length is uint64, so it won't happen in most cases.
++    """
+     @staticmethod
+     def isAsync() -> bool:
+         return True
+ 
+     def __init__(self, seqWhenOverflowed:int, decryptedData:bytes, addr:tuple[str, int]):
++        """
++        Initialize the event with the overflow information.
++        :param seqWhenOverflowed: The sequence number when overflow was detected.
++        :param decryptedData: The decrypted payload associated with the overflow.
++        :param addr: The node address involved in the overflow.
++        """
+         self._seqWhenOverflowed = seqWhenOverflowed
+         self._decryptedData = decryptedData
+         self._addr = addr
+ 
+     @property
+     def seqWhenOverflowed(self) -> int:
++        """
++        The overflow sequence number.
++        """
+         return self._seqWhenOverflowed
+ 
+     @property
+     def decryptedData(self) -> bytes:
++        """
++        The decrypted payload.
++        """
+         return self._decryptedData
+ 
+     @property
+     def addr(self) -> tuple[str, int]:
++        """
++        The node address.
++        """
+         return self._addr
+\ No newline at end of file
+diff --git a/src/P4PCore/event/SecureNetOverflowedEncrypterSeqOnSenderEvent.py b/src/P4PCore/event/SecureNetOverflowedEncrypterSeqOnSenderEvent.py
+index 9baaa52..529ffac 100644
+--- a/src/P4PCore/event/SecureNetOverflowedEncrypterSeqOnSenderEvent.py
++++ b/src/P4PCore/event/SecureNetOverflowedEncrypterSeqOnSenderEvent.py
+@@ -1,23 +1,42 @@
+ from P4PCore.abstract.P4PEvent import P4PEvent
+ 
+ class SecureNetOverflowedEncrypterSeqOnSenderEvent(P4PEvent):
++    """
++    Event fired when the sender detects an encryption sequence overflow.
++    This class is required at overflowed sequence, but sequence length is uint64, so it won't happen in most cases.
++    """
+     @staticmethod
+     def isAsync() -> bool:
+         return True
+ 
+     def __init__(self, seqWhenOverflowed:int, originalData:bytes, addr:tuple[str, int]):
++        """
++        Initialize the event with the overflow information.
++        :param seqWhenOverflowed: The sequence number when overflow was detected.
++        :param originalData: The original payload that overflowed on the sender side.
++        :param addr: The node address involved in the overflow.
++        """
+         self._seqWhenOverflowed = seqWhenOverflowed
+         self._originalData = originalData
+         self._addr = addr
+ 
+     @property
+     def seqWhenOverflowed(self) -> int:
++        """
++        The overflow sequence number.
++        """
+         return self._seqWhenOverflowed
+ 
+     @property
+     def originalData(self) -> bytes:
++        """
++        The original payload.
++        """
+         return self._originalData
+ 
+     @property
+     def addr(self) -> tuple[str, int]:
++        """
++        The node address.
++        """
+         return self._addr
+\ No newline at end of file
+diff --git a/src/P4PCore/event/SecureNetStartedToHelloOnRecver.py b/src/P4PCore/event/SecureNetStartedToHelloOnRecver.py
+index 8e0e43d..6ab3aad 100644
+--- a/src/P4PCore/event/SecureNetStartedToHelloOnRecver.py
++++ b/src/P4PCore/event/SecureNetStartedToHelloOnRecver.py
+@@ -1,32 +1,42 @@
+ from P4PCore.abstract.P4PEvent import P4PEvent
+ 
+ class SecureNetStartedToHelloOnRecver(P4PEvent):
++    """
++    Event fired when the receiver starts the secure hello process for a node.
++    """
+     @staticmethod
+     def isAsync() -> bool:
+         return True
+     def __init__(self, addr:tuple[str, int]):
++        """
++        Initialize the event with the node address.
++        :param addr: The node address starting the hello exchange.
++        """
+         self._addr:tuple[str, int] = addr
+         self._helloVolume:int = 5
+         self._encryptSeqWindowSize:int = 1
+         self._timeoutSecOnHello:float = 5
+     @property
+     def addr(self) -> tuple[str, int]:
++        """
++        The node address.
++        """
+         return self._addr
+     @property
+     def helloVolume(self) -> int:
+         """
+-        Number of retransmissions
++        The number of retransmissions (> 0).
+         """
+         return self._helloVolume
+     @helloVolume.setter
+     def helloVolume(self, volume:int) -> None:
+         if volume <= 0:
+-            return ValueError("volume > 0")
++            return ValueError("helloVolume > 0")
+         self._helloVolume = volume
+     @property
+     def encryptSeqWindowSize(self) -> int:
+         """
+-        Acceptable limits of udp jitter on encryption
++        The allowed retry window size for encryption sequence jitter (> 0).
+         """
+         return self._encryptSeqWindowSize
+     @encryptSeqWindowSize.setter
+@@ -37,7 +47,7 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
+     @property
+     def timeoutSecOnHello(self) -> float:
+         """
+-        Timeout seconds on hello
++        The hello timeout duration (>= 0).
+         """
+         return self._timeoutSecOnHello
+     @timeoutSecOnHello.setter
+diff --git a/src/P4PCore/exception/CancelException.py b/src/P4PCore/exception/CancelException.py
+deleted file mode 100644
+index 2adfff9..0000000
+--- a/src/P4PCore/exception/CancelException.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-class CancelException(Exception):
+-    pass
+\ No newline at end of file
+diff --git a/src/P4PCore/exception/__init__.py b/src/P4PCore/exception/__init__.py
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/src/P4PCore/impledPlugin/Gossiper.py b/src/P4PCore/impledPlugin/Gossiper.py
+index dea4016..fd28e6b 100644
+--- a/src/P4PCore/impledPlugin/Gossiper.py
++++ b/src/P4PCore/impledPlugin/Gossiper.py
+@@ -30,9 +30,10 @@ class Gossiper(NetHandler, HasLoop):
+     _syncerTask:Task
+ 
+     _gossipTTLSeconds:float
+-    _syncPeerCountPerOneTime:int
++    _syncNodeCountPerOneTime:int
+     _syncIntervalSeconds:float
+     _maximumSavedDataCount:int
++    _requiredGossip:bytes
+ 
+     @classmethod
+     async def create(
+@@ -45,12 +46,26 @@ class Gossiper(NetHandler, HasLoop):
+         gossipRecvedEventClass:Type[GossipRecvedEvent],
+         gossipDeletedByGcEventClass:Type[GossipDeletedByGcEvent],
+         gossipTTLSeconds:float=7.0,
+-        syncPeerCountPerOneTime:int=6,
++        syncNodeCountPerOneTime:int=6,
+         syncIntervalSeconds:float=5.0,
+-        maximumSavedDataCount:int=100
++        maximumSavedDataCount:int=100,
++        requiredGossip:bytes=b""
+     ) -> "Gossiper":
+         """
+         Create a new instance of the Gossiper class
++        :param runner: The P4PRunner instance to use for networking and event management.
++        :param uuidFlag: A UUID flag to identify the gossiper in the network.
++        :param gossipLength: The length of each gossip message in bytes.
++        :param maximumGossipCountPerMessage: The maximum number of gossip messages to send in one message.
++        :param getAddrsFunc: A callable that returns a set of node addrs.
++        :param gossipRecvedEventClass: The class to use for the GossipRecvedEvent.
++        :param gossipDeletedByGcEventClass: The class to use for the GossipDeletedByGcEvent.
++        :param gossipTTLSeconds: The time-to-live for each gossip message in seconds (> 0).
++        :param syncNodeCountPerOneTime: The number of nodes to synchronize with in one time (> 0).
++        :param syncIntervalSeconds: The interval between synchronization attempts in seconds (>= 0).
++        :param maximumSavedDataCount: The maximum number of gossip messages to save. (> 0)
++        :param requiredGossip: The gossip message that is required to be shared every time (% gossipLength == 0).
++        :return: An instance of the Gossiper class.
+         """
+         inst = cls()
+         inst._runner = runner
+@@ -66,16 +81,19 @@ class Gossiper(NetHandler, HasLoop):
+ 
+         if gossipTTLSeconds <= 0:
+             raise ValueError("gossipTTLSeconds > 0")
+-        elif syncPeerCountPerOneTime <= 0:
+-            raise ValueError("syncPeerCountPerOneTime > 0")
++        elif syncNodeCountPerOneTime <= 0:
++            raise ValueError("syncNodeCountPerOneTime > 0")
+         elif syncIntervalSeconds < 0:
+             raise ValueError("syncIntervalSec >= 0")
+         elif maximumSavedDataCount <= 0:
+             raise ValueError("maximumSavedDataCount > 0")
++        elif len(requiredGossip) % gossipLength != 0:
++            raise ValueError("len(requiredGossip) % gossipLength == 0")
+         inst._gossipTTLSeconds = gossipTTLSeconds
+-        inst._syncPeerCountPerOneTime = syncPeerCountPerOneTime
++        inst._syncNodeCountPerOneTime = syncNodeCountPerOneTime
+         inst._syncIntervalSeconds = syncIntervalSeconds
+         inst._maximumSavedDataCount = maximumSavedDataCount
++        inst._requiredGossip = requiredGossip
+ 
+         await inst._runner.userNet.registerHandler(inst._uuidFlag.bytes, inst)
+ 
+@@ -108,13 +126,12 @@ class Gossiper(NetHandler, HasLoop):
+ 
+     async def handle(self, data:bytes, addr:tuple[str, int]) -> None:
+         addedCount = 0
+-        while len(data) >= self._gossipLength and addedCount <= self._maximumGossipCountPerMessage:
++        while addedCount <= self._maximumGossipCountPerMessage:
+             gossipB, data = BytesSplitter.split(data, self._gossipLength, includeRest=True)
+-            if await self.addGossip(gossipB, addr):
+-                addedCount += 1
+-                await self._runner.eventsManager.triggerEvent(
+-                    self._gossipRecvedEventClass(gossipB, addr)
+-                )
++            addedCount += 1
++            await self._runner.eventsManager.triggerEvent(
++                self._gossipRecvedEventClass(gossipB, addr)
++            )
+ 
+     async def _gc(self) -> None:
+         now = asyncio.get_running_loop().time()
+@@ -135,8 +152,8 @@ class Gossiper(NetHandler, HasLoop):
+ 
+     async def sync(self) -> None:
+         """
+-        Synchronize gossip messages with a random selection of peers.
+-        This method retrieves all current gossip messages and a list of peer addresses, then sends a subset of the gossip messages to a random selection of peers. The number of peers and the number of gossip messages sent are limited by the configuration parameters.
++        Synchronize gossip messages with a random selection of nodes.
++        This method retrieves all current gossip messages and a list of node addresses, then sends a subset of the gossip messages to a random selection of nodes. The number of nodes and the number of gossip messages sent are limited by the configuration parameters.
+         """
+         await self._gc()
+ 
+@@ -148,16 +165,17 @@ class Gossiper(NetHandler, HasLoop):
+         if not addrs:
+             return
+         
+-        for addr in random.sample(addrs, min(self._syncPeerCountPerOneTime, len(addrs))):
++        for addr in random.sample(addrs, min(self._syncNodeCountPerOneTime, len(addrs))):
+             selectedGossips = random.sample(
+                 gossips,
+                 min(self._maximumGossipCountPerMessage, len(gossips))
+             )
+-            payload = b"".join(
++            payload = self._requiredGossip + b"".join(
+                 gossip[0]
+                 for gossip in selectedGossips
+                 if gossip[1][1] != addr
+             )
++            
+             self._gossip(addr, payload)
+ 
+     async def _syncer(self) -> None:
+diff --git a/src/P4PCore/manager/Events.py b/src/P4PCore/manager/Events.py
+index f22aab5..0d36738 100644
+--- a/src/P4PCore/manager/Events.py
++++ b/src/P4PCore/manager/Events.py
+@@ -8,15 +8,20 @@ from P4PCore.abstract.P4PEvent import P4PEvent
+ _pendingInsts:list[object] = []
+ 
+ class Events:
++    """
++    Manage event listeners and dispatch matching events to them.
++    """
+     def __init__(self):
++        """
++        Initialize the event registry.
++        """
+         self._events:SimpleCannotDeleteKVManager[Type[P4PEvent], Callable] = SimpleCannotDeleteKVManager()
+         for inst in _pendingInsts:
+             asyncio.run(self.registerListener(inst))
+     async def registerListener(self, inst:object) -> None:
+         """
+         Register an instance to listen to events.
+-        
+-        The instance in argument should have methods decorated with @EventListener, and the type hint of the first argument of these methods should be a subclass of P4PEvent.
++        :param inst: The instance whose methods are decorated with @EventListener.
+         """
+         for n in dir(inst):
+             m = getattr(inst, n)
+@@ -31,6 +36,7 @@ class Events:
+     async def triggerEvent(self, event:P4PEvent) -> None:
+         """
+         Trigger an event. All the listeners registered to listen to this type of event will be called.
++        :param event: The event instance to trigger.
+         """
+         callbacks = await self._events.get(type(event))
+         if not callbacks:
+@@ -46,5 +52,8 @@ class Events:
+                 callback(event)
+ 
+ def EventListener(func:Callable) -> Callable:
++    """
++    Mark a method as a listener for a specific P4P event type.
++    """
+     setattr(func, "_isAEventListener", True)
+     return func
+\ No newline at end of file
+diff --git a/src/P4PCore/manager/SimpleImpls.py b/src/P4PCore/manager/SimpleImpls.py
+index de54ee5..c0754d7 100644
+--- a/src/P4PCore/manager/SimpleImpls.py
++++ b/src/P4PCore/manager/SimpleImpls.py
+@@ -11,31 +11,66 @@ V = TypeVar("V")
+ I = TypeVar("I")
+ 
+ class SimpleSetManager(SetManager, Generic[I]):
++    """
++    A simple implementation of a set manager that provides thread-safe operations on a set.
++    """
+     def __init__(self):
++        """
++        Initialize the manager.
++        """
+         self._set:set[I] = set()
+         self._setLock:Lock = Lock()
+     async def add(self, item:I) -> bool:
++        """
++        Add an item to the set.
++        :param item: The item to add.
++        :return: True if the item was added, False if it was already present.
++        """
+         async with self._setLock:
+             if item in self._set:
+                 return False
+             self._set.add(item)
+         return True
+     async def contains(self, item:I) -> bool:
++        """
++        Check if the set contains an item.
++        :param item: The item to check.
++        :return: True if the item is present, False otherwise.
++        """
+         async with self._setLock:
+             return item in self._set
+     async def remove(self, item:I) -> bool:
++        """
++        Remove an item from the set.
++        :param item: The item to remove.
++        :return: True if the item was removed, False if it was not present.
++        """
+         async with self._setLock:
+             if not item in self._set:
+                 return False
+             self._set.remove(item)
+         return True
+     async def clear(self) -> None:
++        """
++        Clear all items from the set.
++        """
+         async with self._setLock:
+             self._set.clear()
+     async def getAll(self) -> set[I]:
++        """
++        Get all items in the set.
++        :return: A set containing all items.
++        """
+         async with self._setLock:
+             return set(self._set)
+     async def atomic(self, func:Callable[Concatenate[set[I], P], R], *args:P.args, **kwargs:P.kwargs) -> R:
++        """
++        Perform an atomic operation on the set.
++        :param func: A callable that takes the set and additional arguments, and returns a result.
++        :param args: Additional positional arguments to pass to the callable.
++        :param kwargs: Additional keyword arguments to pass to the callable.
++        :return: The result of the callable.
++        """
+         async with self._setLock:
+             r = func(self._set, *args, **kwargs)
+             if isinstance(r, Awaitable):
+@@ -43,47 +78,104 @@ class SimpleSetManager(SetManager, Generic[I]):
+             return r
+ 
+ class SimpleListManager(ListManager, Generic[I]):
+-    def __init__(self,):
++    """
++    A simple implementation of a list manager that provides thread-safe operations on a list.
++    """
++    def __init__(self):
++        """
++        Initialize the manager.
++        """
+         self._list:list[I] = []
+         self._listLock:Lock = Lock()
+     async def insertNext(self, value:I, index:int = -1) -> None:
++        """
++        Insert a value into the list at the specified index.
++        :param value: The value to insert.
++        :param index: The index at which to insert the value. Defaults to -1 (insert at the end).
++        """
+         async with self._listLock:
+             if index < 0:
+                 index = len(self._list) - abs(index)
+             self._list.insert(index+1, value)
+     async def change(self, index:int, value:I) -> None:
++        """
++        Change the value at the specified index in the list.
++        :param index: The index of the value to change.
++        :param value: The new value to set at the specified index.
++        """
+         async with self._listLock:
+             self._list[index] = value
+     async def get(self, index:int) -> I | None:
++        """
++        Get the value at the specified index in the list.
++        :param index: The index of the value to get.
++        :return: The value at the specified index, or None if the index is out of bounds.
++        """
+         async with self._listLock:
+             l = len(self._list)
+             if -l <= index < l:
+                 return self._list[index]
+         return None
+     async def getLength(self) -> int:
++        """
++        Get the length of the list.
++        :return: The length of the list.
++        """
+         async with self._listLock:
+             return len(self._list)
+     async def getIndex(self, value:I) -> int:
++        """
++        Get the index of the specified value in the list.
++        :param value: The value to find.
++        :return: The index of the value, or -1 if the value is not found.
++        """
+         async with self._listLock:
+             if not value in self._list:
+                 return -1
+             return self._list.index(value)
+     async def getAll(self) -> list[I]:
++        """
++        Get all values in the list.
++        :return: A list containing all values.
++        """
+         async with self._listLock:
+             return self._list.copy()
+     async def delete(self, index:int) -> None:
++        """
++        Delete the value at the specified index in the list.
++        :param index: The index of the value to delete.
++        """
+         async with self._listLock:
+             del self._list[index]
+     async def pop(self, index:int) -> I | None:
++        """
++        Pop the value at the specified index in the list.
++        :param index: The index of the value to pop.
++        :return: The value that was popped, or None if the index is out of bounds
++        """
+         async with self._listLock:
+             return self._list.pop(index)
+     async def deleteValue(self, value:I) -> None:
++        """
++        Delete the first matching value from the list.
++        :param value: The value to delete.
++        """
+         async with self._listLock:
+             self._list.remove(value)
+     async def clear(self) -> None:
++        """
++        Clear all values from the list.
++        """
+         async with self._listLock:
+             self._list.clear()
+     async def atomic(self, func:Callable[Concatenate[list[I], P], R], *args:P.args, **kwargs:P.kwargs) -> R:
++        """
++        Perform an atomic operation on the list.
++        :param func: A callable that takes the list and additional arguments, and returns a result.
++        :param args: Additional positional arguments to pass to the callable.
++        :param kwargs: Additional keyword arguments to pass to the callable.
++        :return: The result of the callable.
++        """
+         async with self._listLock:
+             r = func(self._list, *args, **kwargs)
+             if isinstance(r, Awaitable):
+@@ -92,9 +184,19 @@ class SimpleListManager(ListManager, Generic[I]):
+ 
+ class _BaseKVManager(Generic[K, V]):
+     def __init__(self):
++        """
++        Initialize the manager.
++        """
+         self._dict:dict[K, V] = {}
+         self._dictLock:Lock = Lock()
+     async def atomic(self, func:Callable[Concatenate[dict[K, V], P], R], *args:P.args, **kwargs:P.kwargs) -> R:
++        """
++        Perform an atomic operation on the underlying dictionary.
++        :param func: A callable that takes the dictionary and additional arguments, and returns a result.
++        :param args: Additional positional arguments to pass to the callable.
++        :param kwargs: Additional keyword arguments to pass to the callable.
++        :return: The result of the callable.
++        """
+         async with self._dictLock:
+             r = func(self._dict, *args, **kwargs)
+             if isinstance(r, Awaitable):
+@@ -102,10 +204,20 @@ class _BaseKVManager(Generic[K, V]):
+             return r
+ class _BaseBiKVManager(Generic[K, V]):
+     def __init__(self):
++        """
++        Initialize the manager.
++        """
+         self._dict:dict[K, V] = {}
+         self._dictLock:Lock = Lock()
+         self._rDict:dict[V, K] = {}
+     async def atomic(self, func:Callable[Concatenate[dict[K, V], dict[V, K], P], R], *args:P.args, **kwargs:P.kwargs) -> R:
++        """
++        Perform an atomic operation on both dictionary views.
++        :param func: A callable that takes the forward and reverse dictionaries and additional arguments, and returns a result.
++        :param args: Additional positional arguments to pass to the callable.
++        :param kwargs: Additional keyword arguments to pass to the callable.
++        :return: The result of the callable.
++        """
+         async with self._dictLock:
+             r = func(self._dict, self._rDict, *args, **kwargs)
+             if isinstance(r, Awaitable):
+@@ -113,12 +225,24 @@ class _BaseBiKVManager(Generic[K, V]):
+             return r
+ class _WriteKVMixin(WriteableKV, Generic[K, V]):
+     async def put(self:_BaseKVManager[K, V], key:K, value:V) -> V | None:
++        """
++        Put a value for the specified key and return the previous value if one existed.
++        :param key: The key to write.
++        :param value: The value to store.
++        :return: The previous value for the key, or None if it was absent.
++        """
+         async with self._dictLock:
+             oV = self._dict.get(key)
+             self._dict[key] = value
+         return oV
+ class _AddKVMixin(AddableKV, Generic[K, V]):
+     async def add(self:_BaseKVManager[K, V], key:K, value:V) -> bool:
++        """
++        Add a key-value pair only when the key is not already present.
++        :param key: The key to add.
++        :param value: The value to assign.
++        :return: True if the key was added, or False if the key already existed with the same value.
++        """
+         async with self._dictLock:
+             if key in self._dict:
+                 return self._dict[key] == value
+@@ -126,6 +250,12 @@ class _AddKVMixin(AddableKV, Generic[K, V]):
+         return True
+ class _AddBiKVMixin(AddableBiKV, Generic[K, V]):
+     async def add(self:_BaseBiKVManager[K, V], key:K, value:V) -> bool:
++        """
++        Add a bidirectional mapping only when both the key and value are absent.
++        :param key: The key to add.
++        :param value: The value to associate.
++        :return: True if the mapping was added, False if it already existed.
++        """
+         async with self._dictLock:
+             if (oK := self._dict.get(key)) or (oV := self._rDict.get(value)):
+                 return oK == key and oV == value
+@@ -134,57 +264,124 @@ class _AddBiKVMixin(AddableBiKV, Generic[K, V]):
+         return True
+ class _ReadKVMixin(ReadableKV, Generic[K, V]):
+     async def get(self:_BaseKVManager[K, V], key:K) -> V | None:
++        """
++        Get the value associated with the specified key.
++        :param key: The key to look up.
++        :return: The stored value, or None if the key does not exist.
++        """
+         async with self._dictLock:
+             return self._dict.get(key)
+     async def getAll(self:_BaseKVManager[K, V]) -> dict[K, V]:
++        """
++        Get a copy of all key-value pairs.
++        :return: A dictionary copy of the current contents.
++        """
+         async with self._dictLock:
+             return dict(self._dict)
+     async def len(self:_BaseKVManager[K, V]) -> int:
++        """
++        Get the number of stored key-value pairs.
++        :return: The current dictionary length.
++        """
+         async with self._dictLock:
+             return len(self._dict)
+ class _ReadBiKVMixin(ReadableBiKV, Generic[K, V]):
+     async def get(self:_BaseBiKVManager[K, V], key:K) -> V | None:
++        """
++        Get the value associated with the specified key.
++        :param key: The key to look up.
++        :return: The stored value, or None if the key does not exist.
++        """
+         async with self._dictLock:
+             return self._dict.get(key)
+     async def getKey(self:_BaseBiKVManager[K, V], value:V) -> K | None:
++        """
++        Get the key associated with the specified value.
++        :param value: The value to look up.
++        :return: The matching key, or None if the value does not exist.
++        """
+         async with self._dictLock:
+             return self._rDict.get(value)
+     async def getAll(self:_BaseBiKVManager[K, V]) -> dict[K, V]:
++        """
++        Get a copy of all key-value pairs.
++        :return: A dictionary copy of the current contents.
++        """
+         async with self._dictLock:
+             return dict(self._dict)
+     async def len(self:_BaseBiKVManager[K, V]) -> int:
++        """
++        Get the number of stored key-value pairs.
++        :return: The current dictionary length.
++        """
+         async with self._dictLock:
+             return len(self._dict)
+ class _DeleteKVMixin(DeletableKV, Generic[K, V]):
+     async def delete(self:_BaseKVManager[K, V], key:K) -> V | None:
++        """
++        Delete the value for the specified key and return the removed value.
++        :param key: The key to delete.
++        :return: The removed value, or None if the key was absent.
++        """
+         async with self._dictLock:
+             return self._dict.pop(key, None)
+     async def clear(self:_BaseKVManager[K, V]) -> None:
++        """
++        Remove all key-value pairs from the dictionary.
++        """
+         async with self._dictLock:
+             self._dict.clear()
+ class _DeleteBiKVMixin(DeletableBiKV, Generic[K, V]):
+     async def delete(self:_BaseBiKVManager[K, V], key:K) -> bool:
++        """
++        Delete a mapping for the specified key and remove its reverse lookup entry.
++        :param key: The key to delete.
++        :return: True if the key existed and was removed, False otherwise.
++        """
+         async with self._dictLock:
+             s = key in self._dict
+             self._rDict.pop(self._dict.pop(key, None), None)
+             return s
+     async def deleteByValue(self:_BaseBiKVManager[K, V], value:V) -> bool:
++        """
++        Delete the mapping associated with the specified value.
++        :param value: The value to remove.
++        :return: True if the value existed and was removed, False otherwise.
++        """
+         async with self._dictLock:
+             s = value in self._rDict
+             self._dict.pop(self._rDict.pop(value, None), None)
+             return s
+     async def clear(self:_BaseBiKVManager[K, V]) -> None:
++        """
++        Remove all forward and reverse mappings from the dictionary.
++        """
+         async with self._dictLock:
+             self._dict.clear()
+             self._rDict.clear()
+ 
+ class SimpleKVManager(Generic[K, V], _BaseKVManager[K, V], _ReadKVMixin[K, V], _WriteKVMixin[K, V], _DeleteKVMixin[K, V]):
++    """
++    A simple implementation of a key-value manager that provides thread-safe dictionary operations.
++    """
+     pass
+ class SimpleCannotOverwriteKVManager(Generic[K, V], _BaseKVManager[K, V], _ReadKVMixin[K, V], _AddKVMixin[K, V], _DeleteKVMixin[K, V]):
++    """
++    A simple implementation of a key-value manager that prevents overwriting existing entries.
++    """
+     pass
+ class SimpleCannotDeleteKVManager(Generic[K, V], _BaseKVManager[K, V], _ReadKVMixin[K, V], _WriteKVMixin[K, V]):
++    """
++    A simple implementation of a key-value manager that prevents deletion while allowing updates.
++    """
+     pass
+ class SimpleCannotDeleteAndOverwriteKVManager(Generic[K, V], _BaseKVManager[K, V], _ReadKVMixin[K, V], _AddKVMixin[K, V]):
++    """
++    A simple implementation of a key-value manager that prevents deletion and overwriting existing entries.
++    """
+     pass
+ class SimpleCannotDeleteAndOverwriteBiKVManager(Generic[K, V], _BaseBiKVManager[K, V], _ReadBiKVMixin[K, V], _AddBiKVMixin[K, V]):
++    """
++    A simple implementation of a bidirectional key-value manager that prevents deletion and overwriting existing entries.
++    """
+     pass
+\ No newline at end of file
+diff --git a/src/P4PCore/manager/WaitingResponses.py b/src/P4PCore/manager/WaitingResponses.py
+index 053ef40..a014ac3 100644
+--- a/src/P4PCore/manager/WaitingResponses.py
++++ b/src/P4PCore/manager/WaitingResponses.py
+@@ -8,10 +8,14 @@ OI = TypeVar("OI")
+ RT = TypeVar("RT")
+ 
+ class WaitingResponses:
++    """Track in-flight waiting responses by their response key."""
+     def __init__(self):
++        """Initialize the manager that stores waiting responses by key."""
+         self._manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse] = SimpleCannotOverwriteKVManager()
+     class _ResponseContext(Generic[OI, RT]):
++        """Context manager for registering a waiting response while it is in use."""
+         def __init__(self, manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse], waitingResponse:WaitingResponse[OI, RT]):
++            """Create a response context bound to a specific waiting-response instance."""
+             self._manager:SimpleCannotOverwriteKVManager[WAITING_RESPONSE_INFO_KEY, WaitingResponse] = manager
+             self._waitingResponseInfo:WaitingResponseInfo = waitingResponse.waitingResponseInfo
+             self._waitingResponse = waitingResponse
+@@ -19,16 +23,21 @@ class WaitingResponses:
+             self._exited:bool = False
+         @property
+         def waitingResponse(self) -> WaitingResponse[OI, RT]:
++            """Return the wrapped waiting response instance."""
+             return self._waitingResponse
+         async def __aenter__(self):
++            """Register the waiting response when entering the context."""
+             await self._manager.add(self._waitingResponseInfo.key, self._waitingResponse)
+             return self
+         async def __aexit__(self, _, __, ___):
++            """Unregister the waiting response when leaving the context."""
+             self._exited = True
+             await self._manager.delete(self._waitingResponseInfo.key)
+     def open(self, waitingResponse:WaitingResponse[OI, RT]) -> _ResponseContext[OI, RT]:
++        """Open a context that registers a waiting response for the duration of the scope."""
+         return self._ResponseContext(self._manager, waitingResponse)
+     async def get(self, waitingResponseInfoKey:WAITING_RESPONSE_INFO_KEY) -> WaitingResponse | None:
++        """Return the waiting response registered under the specified key, if any."""
+         return await self._manager.get(waitingResponseInfoKey)
+     
+     
+diff --git a/src/P4PCore/model/Ed25519Signer.py b/src/P4PCore/model/Ed25519Signer.py
+index 100031d..088885c 100644
+--- a/src/P4PCore/model/Ed25519Signer.py
++++ b/src/P4PCore/model/Ed25519Signer.py
+@@ -5,10 +5,26 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+ from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+ 
+ class Ed25519Signer:
++    """
++    Sign data with an Ed25519 private key and expose the corresponding public key.
++    """
+     def __init__(self, ed25519PrivateKeyBytes:bytes | None = None):
++        """
++        Initialize the signer with an existing private key or generate a new one.
++        :param ed25519PrivateKeyBytes: The raw 32-byte Ed25519 private key, or None to generate a new key.
++        """
+         self._privateKey:Ed25519PrivateKey = Ed25519PrivateKey.generate() if ed25519PrivateKeyBytes is None else Ed25519PrivateKey.from_private_bytes(ed25519PrivateKeyBytes)
+     async def sign(self, data:bytes) -> bytes:
++        """
++        Sign the given data using the Ed25519 private key.
++        :param data: The data to sign.
++        :return: The raw signature bytes.
++        """
+         return await asyncio.to_thread(self._privateKey.sign, data)
+     @property
+     def publicKey(self) -> HashableEd25519PublicKey:
++        """
++        Get the public key corresponding to the private key.
++        :return: A hashable representation of the public key.
++        """
+         return HashableEd25519PublicKey(self._privateKey.public_key().public_bytes_raw())
+\ No newline at end of file
+diff --git a/src/P4PCore/model/HashableEd25519PublicKey.py b/src/P4PCore/model/HashableEd25519PublicKey.py
+index 9f8603c..24b9f46 100644
+--- a/src/P4PCore/model/HashableEd25519PublicKey.py
++++ b/src/P4PCore/model/HashableEd25519PublicKey.py
+@@ -4,10 +4,20 @@ from typing import Hashable
+ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+ 
+ class HashableEd25519PublicKey(Hashable):
++    """
++    Wrap an Ed25519 public key so it can be hashed and compared by raw public key bytes.
++    """
+     def __init__(self, publicKeyBytes:bytes):
++        """
++        Initialize the wrapper from raw public key bytes.
++        :param publicKeyBytes: The raw 32-byte Ed25519 public key.
++        """
+         self._publicKey:Ed25519PublicKey = Ed25519PublicKey.from_public_bytes(publicKeyBytes)
+     @property
+     def publicKeyBytes(self) -> bytes:
++        """
++        The encoded raw Ed25519 public key.
++        """
+         return self._publicKey.public_bytes_raw()
+     
+     def _verify(self, signed:bytes, data:bytes) -> bool:
+@@ -18,6 +28,12 @@ class HashableEd25519PublicKey(Hashable):
+             return False
+     
+     async def verify(self, signed:bytes, data:bytes) -> bool:
++        """
++        Verify a signature asynchronously.
++        :param signed: The signature bytes to verify.
++        :param data: The original data that was signed.
++        :return: True if the signature is valid, otherwise False.
++        """
+         return await asyncio.to_thread(self._verify, signed, data)
+ 
+     def __hash__(self):
+diff --git a/src/P4PCore/model/NodeIdentify.py b/src/P4PCore/model/NodeIdentify.py
+index a3384ea..307d37b 100644
+--- a/src/P4PCore/model/NodeIdentify.py
++++ b/src/P4PCore/model/NodeIdentify.py
+@@ -4,6 +4,9 @@ from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+ 
+ @dataclass(frozen=True, kw_only=True)
+ class NodeIdentify:
++    """
++    Identify a node by address and Ed25519 public key.
++    """
+     ip:str
+     port:int
+     hashableEd25519PublicKey:HashableEd25519PublicKey
+@@ -19,4 +22,7 @@ class NodeIdentify:
+         )
+     @property
+     def addr(self) -> tuple[str, int]:
++        """
++        A tuple of the IP addr and port.
++        """
+         return self.ip, self.port
+diff --git a/src/P4PCore/model/Response.py b/src/P4PCore/model/Response.py
+index 89e235b..32d7fd4 100644
+--- a/src/P4PCore/model/Response.py
++++ b/src/P4PCore/model/Response.py
+@@ -3,14 +3,28 @@ from typing import Generic, TypeVar
+ RV = TypeVar("RV")
+ 
+ class Response(Generic[RV]):
++    """
++    Hold a response payload and an optional identifier for a subsequent response.
++    """
+     def __init__(self, value:RV, nextResponseIdentify:bytes | None = None):
++        """
++        Initialize the response value and the next response identifier.
++        :param value: The response payload to store.
++        :param nextResponseIdentify: An optional identifier for a chained response, or None when there is no next response.
++        """
+         self._value:RV = value
+         
+         self._nextResponseId:bytes | None = nextResponseIdentify
+     @property
+     def value(self) -> RV:
++        """
++        The response payload.
++        """
+         return self._value
+ 
+     @property
+     def nextResponseId(self) -> bytes:
++        """
++        The next response identifier, or None if unavailable.
++        """
+         return self._nextResponseId
+\ No newline at end of file
+diff --git a/src/P4PCore/model/WaitingResponse.py b/src/P4PCore/model/WaitingResponse.py
+index 00b523c..b4f8d51 100644
+--- a/src/P4PCore/model/WaitingResponse.py
++++ b/src/P4PCore/model/WaitingResponse.py
+@@ -10,26 +10,50 @@ OI = TypeVar("OI")
+ RV = TypeVar("RV")
+ 
+ class WaitingResponse(Generic[OI, RV]):
++    """
++    Represent a pending response whose value will be resolved later.
++    """
+     def __init__(self, waitingResponseInfo:WaitingResponseInfo, otherInfo:OI=None):
++        """
++        Initialize the pending response with metadata and a future for the eventual result.
++        :param waitingResponseInfo: The metadata used to identify the waiting response.
++        :param otherInfo: Optional extra information associated with the response.
++        """
+         self._waitingResponseInfo:WaitingResponseInfo = waitingResponseInfo
+         self._otherInfo:OI = otherInfo
+         self._responseFuture:Future[Response[RV] | None] = Future()
+     def setResponse(self, response:Response[RV] | None) -> bool:
++        """
++        Set the eventual response for this waiting call.
++        :param response: The response to resolve with, or None if no response is available.
++        :return: True if the value was set successfully, otherwise False if it was already resolved.
++        """
+         try:
+             self._responseFuture.set_result(response)
+             return True
+         except InvalidStateError:
+             return False
+     async def waitAndGet(self, timeoutSec:float | None=None) -> Response[RV] | None:
++        """
++        Wait for the response to arrive until the timeout expires.
++        :param timeoutSec: The maximum time to wait in seconds, or None for no timeout.
++        :return: The response value if it arrives in time, otherwise None.
++        """
+         try:
+             return await asyncio.wait_for(self._responseFuture, timeout=timeoutSec)
+         except (TimeoutError, CancelledError):
+             return None
+     @property
+     def waitingResponseInfo(self) -> WaitingResponseInfo:
++        """
++        The metadata object used to identify this waiting response.
++        """
+         return self._waitingResponseInfo
+     @property
+     def otherInfo(self) -> OI:
++        """
++        The extra information associated with this waiting response.
++        """
+         return self._otherInfo
+     def __bool__(self) -> bool:
+         return not self._responseFuture.done()
+diff --git a/src/P4PCore/model/WaitingResponseInfo.py b/src/P4PCore/model/WaitingResponseInfo.py
+index 8f78465..a336926 100644
+--- a/src/P4PCore/model/WaitingResponseInfo.py
++++ b/src/P4PCore/model/WaitingResponseInfo.py
+@@ -5,13 +5,26 @@ from P4PCore.protocol.Protocol import ANY_UNIQUE_RANDOM_BYTES_SIZE
+ WAITING_RESPONSE_INFO_KEY = tuple[tuple[str, int], bytes]
+ 
+ class WaitingResponseInfo:
+-    def __init__(self, addr:tuple[str, int]):
++    """
++    Store the address and a random identifier for a waiting response.
++    """
++    def __init__(self, addr:tuple[str, int], uniqueBytesSize:int=ANY_UNIQUE_RANDOM_BYTES_SIZE):
++        """
++        Initialize the waiting response metadata.
++        :param addr: The network address associated with the waiting response.
++        """
+         self._addr:tuple[str, int] = addr
+         
+-        self._identify:bytes = os.urandom(ANY_UNIQUE_RANDOM_BYTES_SIZE)
++        self._identify:bytes = os.urandom(uniqueBytesSize)
+     @property
+     def identify(self) -> bytes:
++        """
++        The unique identifier used to distinguish this waiting response.
++        """
+         return self._identify
+     @property
+     def key(self) -> WAITING_RESPONSE_INFO_KEY:
++        """
++        A tuple of the address and unique identifier.
++        """
+         return self._addr, self._identify
+\ No newline at end of file
+diff --git a/src/P4PCore/model/X25519AndAesEncrypter.py b/src/P4PCore/model/X25519AndAesEncrypter.py
+index 8a6bfc8..a219238 100644
+--- a/src/P4PCore/model/X25519AndAesEncrypter.py
++++ b/src/P4PCore/model/X25519AndAesEncrypter.py
+@@ -11,19 +11,44 @@ from P4PCore.protocol.Protocol import *
+ from P4PCore.util.BytesCoverter import itob
+ 
+ class EncrypterOverflowException(OverflowError):
++    """
++    Raised when the encryption sequence number exceeds the configured limit.
++    This class is required at overflowed sequence, but sequence length is uint64, so it won't happen in most cases.
++    """
+     def __init__(self, sequenceWhenOverflowed:int, originalData:bytes):
++        """
++        Initialize the overflow exception with the sequence number and original data.
++        :param sequenceWhenOverflowed: The sequence number when the overflow happened.
++        :param originalData: The original data that caused the overflow context.
++        """
+         self._sequenceWhenOverflowed = sequenceWhenOverflowed
+         self._originalData = originalData
+         super().__init__(f"Sequence number already have hit {self._sequenceWhenOverflowed} max")
+     @property
+     def seqWhenOverflowed(self) -> int:
++        """
++        The sequence number when the overflow occurred.
++        """
+         return self._sequenceWhenOverflowed
+     @property
+     def originalData(self) -> bytes:
++        """
++        The original data associated with the overflow.
++        """
+         return self._originalData
+ 
+ class X25519AndAesgcmEncrypter:
++    """
++    Encrypt and decrypt data using X25519 key agreement and AES-GCM with sequence tracking.
++    """
+     def __init__(self, amIFirstNodeToHello:bool, encryptSeqWindowSize:int, salt:bytes | None = None, encryptSeqLimits:int = MAX_SEQ_OF_SECURE_NET):
++        """
++        Initialize the encrypter with hello-order and sequence-window settings.
++        :param amIFirstNodeToHello: True when this node initiates the hello exchange, otherwise False.
++        :param encryptSeqWindowSize: The size of the sequence window used to detect duplicate or out-of-order packets.
++        :param salt: Optional salt bytes for key derivation, or None to generate a random one.
++        :param encryptSeqLimits: The maximum valid encryption sequence value.
++        """
+         self._amIFirstNodeToHello:bool = amIFirstNodeToHello
+         self._encryptSeqWindowSize:int = encryptSeqWindowSize
+         self._encryptSeqLimits:int = encryptSeqLimits
+@@ -58,6 +83,10 @@ class X25519AndAesgcmEncrypter:
+             ).derive(self._sharedSecret)
+         )
+     async def derive(self, otherPartyX25519PublicKeyBytes:bytes) -> None:
++        """
++        Derive the shared secret and AES key using the peer public key bytes.
++        :param otherPartyX25519PublicKeyBytes: The raw X25519 public key bytes of the peer.
++        """
+         oPK = X25519PublicKey.from_public_bytes(
+             otherPartyX25519PublicKeyBytes
+         )
+@@ -65,6 +94,11 @@ class X25519AndAesgcmEncrypter:
+             await asyncio.to_thread(self._deriveSharedSecretSyncronized, oPK)
+             await asyncio.to_thread(self._deriveAesKeySyncronized, X25519S_SHARED_SECRET_AND_AES_KEY_INFO)
+     async def encrypt(self, data:bytes) -> tuple[int, bytes]:
++        """
++        Encrypt data using the derived AES-GCM key and incrementing sequence number.
++        :param data: The plaintext bytes to encrypt.
++        :return: A tuple containing the sequence number and the ciphertext bytes.
++        """
+         async with self._secretsLock:
+             if self._aesKey is None:
+                 raise Exception("Shared secret and AES key are not derived yet.")
+@@ -78,6 +112,12 @@ class X25519AndAesgcmEncrypter:
+         nonceBA[AESGCM_NONCE_SIZE-PacketElementSize.SEQ:] = itob(seq, PacketElementSize.SEQ)
+         return seq, await asyncio.to_thread(self._aesKey.encrypt, bytes(nonceBA), data, None)
+     async def decrypt(self, encryptedData:bytes, seq:int) -> bytes | None:
++        """
++        Decrypt data using the sequence number and reject replayed or out-of-window packets.
++        :param encryptedData: The ciphertext bytes to decrypt.
++        :param seq: The sequence number associated with the ciphertext.
++        :return: The decrypted plaintext bytes if valid, otherwise None.
++        """
+         async with self._secretsLock:
+             if self._aesKey is None:
+                 raise Exception("Shared secret and AES key are not derived yet.")
+@@ -106,7 +146,13 @@ class X25519AndAesgcmEncrypter:
+         return data
+     @property
+     def salt(self) -> bytes:
++        """
++        The salt bytes used in the HKDF derivation.
++        """
+         return self._salt
+     @property
+     def myX25519PublicKeyBytes(self) -> bytes:
++        """
++        The raw public X25519 key bytes.
++        """
+         return self._myX25519PrivateKey.public_key().public_bytes_raw()
+\ No newline at end of file
+diff --git a/src/P4PCore/util/BytesCoverter.py b/src/P4PCore/util/BytesCoverter.py
+index fb91538..618a352 100644
+--- a/src/P4PCore/util/BytesCoverter.py
++++ b/src/P4PCore/util/BytesCoverter.py
+@@ -3,12 +3,34 @@ from enum import IntEnum
+ from P4PCore.protocol.Protocol import ENDIAN, STR_ENCODING
+ 
+ def itob(i:int | IntEnum, size:int, endian:str=ENDIAN, signed:bool=False) -> bytes:
++    """
++    Convert an integer value to bytes.
++    :param i: The integer or IntEnum value to encode.
++    :param size: The number of bytes in the output.
++    :param endian: The byte order used for encoding.
++    :param signed: Whether the value should be treated as signed.
++    :return: The integer encoded as bytes.
++    """
+     return (i.value if isinstance(i, IntEnum) else i).to_bytes(size, endian, signed=signed)
+ 
+ def btoi(bI:bytes, endian:str=ENDIAN, signed=False) -> int:
++    """
++    Convert bytes to an integer.
++    :param bI: The byte sequence to decode.
++    :param endian: The byte order used for decoding.
++    :param signed: Whether the value should be treated as signed.
++    :return: The decoded integer value.
++    """
+     return int.from_bytes(bI, endian, signed=signed)
+ 
+ def stob(s:str, size:int, encoding:str=STR_ENCODING) -> bytes:
++    """
++    Convert a string to fixed-size bytes.
++    :param s: The string to encode.
++    :param size: The target size in bytes; the result is padded with null bytes when needed.
++    :param encoding: The character encoding used for conversion.
++    :return: The encoded bytes padded to the requested size.
++    """
+     b = bytearray()
+     for c in s:
+         if size and len(b) + len(c.encode(encoding)) > size:
+@@ -17,4 +39,10 @@ def stob(s:str, size:int, encoding:str=STR_ENCODING) -> bytes:
+     return bytes(b)+(b"\x00"*(size-len(b)))
+ 
+ def btos(b:bytes, encoding:str=STR_ENCODING) -> str:
++    """
++    Convert bytes to a string.
++    :param b: The byte sequence to decode.
++    :param encoding: The character encoding used for decoding.
++    :return: The decoded string without trailing null bytes.
++    """
+     return b.rstrip(b"\x00").decode(encoding, errors="ignore")
+\ No newline at end of file
+diff --git a/src/P4PCore/util/BytesSplitter.py b/src/P4PCore/util/BytesSplitter.py
+index bd5f4a6..a8576ac 100644
+--- a/src/P4PCore/util/BytesSplitter.py
++++ b/src/P4PCore/util/BytesSplitter.py
+@@ -1,4 +1,11 @@
+ def split(data:bytes, *sizes:tuple[int], includeRest:bool = False) -> list[bytes]:
++    """
++    Split byte data into fixed-size segments.
++    :param data: The source byte data to split.
++    :param sizes: The sizes of each segment to extract.
++    :param includeRest: Whether to append the remaining bytes after the fixed-size splits.
++    :return: A list of the split byte segments, including the remaining bytes when requested.
++    """
+     if includeRest:
+         data += b"\x00"
+     splitData = []
+diff --git a/tests/test_Gossiper.py b/tests/test_Gossiper.py
+index 1701f9f..4118351 100644
+--- a/tests/test_Gossiper.py
++++ b/tests/test_Gossiper.py
+@@ -7,6 +7,7 @@ from P4PCore.P4PRunner import P4PRunner
+ from P4PCore.impledPlugin.Gossiper import Gossiper
+ from P4PCore.event.GossipRecvedEvent import GossipRecvedEvent
+ from P4PCore.event.GossipDeletedByGcEvent import GossipDeletedByGcEvent
++from P4PCore.manager.Events import EventListener
+ 
+ PLUGIN_UUID = uuid4()
+ GOSSIP_LENGTH = 10
+@@ -17,6 +18,17 @@ class TestGossiper:
+     async def testGossip(self):
+         runner = await P4PRunner.create()
+         gossiper = await Gossiper.create(runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, lambda:None, GossipRecvedEvent, GossipDeletedByGcEvent)
++
++        l = []
++        gossipContent = os.urandom(GOSSIP_LENGTH)
++        class GossipRecvedHandler:
++            @EventListener
++            async def onGossipRecved(self, e:GossipRecvedEvent):
++                if e.gossipContent != gossipContent:
++                    return
++                l.append(1)
++        await runner.eventsManager.registerListener(GossipRecvedHandler())
++
+         await runner.begin()
+         await gossiper.begin()
+ 
+@@ -30,14 +42,13 @@ class TestGossiper:
+         gossipContent = os.urandom(GOSSIP_LENGTH)
+         
+         gossiper2._gossip(
+-            runner._net._protocolV4.transport.get_extra_info("sockname"),
++            runner.net._protocolV4.transport.get_extra_info("sockname"),
+             gossipContent
+         )
+ 
+         await asyncio.sleep(0.1)
+ 
+-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len()
+-        assert list((await gossiper._gossipBytesToFoundTimesAndAddrs.getAll()).keys())[0] == gossipContent
++        assert len(l)
+ 
+         await gossiper.end()
+         await runner.end()
+@@ -76,6 +87,15 @@ class TestGossiper:
+     @pytest.mark.asyncio
+     async def testSync(self):
+         runner = await P4PRunner.create()
++        l = []
++        gossipContent = os.urandom(GOSSIP_LENGTH)
++        class GossipRecvedHandler:
++            @EventListener
++            async def onGossipRecved(self, e:GossipRecvedEvent):
++                if e.gossipContent != gossipContent:
++                    return
++                l.append(1)
++        await runner.eventsManager.registerListener(GossipRecvedHandler())
+         runner2 = await P4PRunner.create()
+ 
+         await runner.begin()
+@@ -91,21 +111,66 @@ class TestGossiper:
+         gossiper2 = await Gossiper.create(
+             runner2, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
+             GossipRecvedEvent, GossipDeletedByGcEvent,
+-            syncIntervalSeconds=0.1, gossipTTLSeconds=10
++            syncIntervalSeconds=1, gossipTTLSeconds=10
+         )
+         
+         await runner2.begin()
+         await gossiper2.begin()
++        
++        await gossiper2.addGossip(gossipContent)
++
++        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 0
++        assert not len(l)
++
++        await asyncio.sleep(0.3)
++
++        assert len(l) == 1
++
++        await runner.end()
++        await gossiper2.end()
++        await runner2.end()
+ 
++    @pytest.mark.asyncio
++    async def testDontSyncByGricesMaximOfQuantityRule(self):
++        runner = await P4PRunner.create()
++        l = []
+         gossipContent = os.urandom(GOSSIP_LENGTH)
+-        await gossiper2.addGossip(gossipContent)
++        class GossipRecvedHandler:
++            @EventListener
++            async def onGossipRecved(self, e:GossipRecvedEvent):
++                if e.gossipContent != gossipContent:
++                    return
++                l.append(1)
++        await runner.eventsManager.registerListener(GossipRecvedHandler())
++        runner2 = await P4PRunner.create()
++
++        await runner.begin()
++
++        async def getAddrs():
++            return [runner._net._protocolV4.transport.get_extra_info("sockname")]
++
++        gossiper = await Gossiper.create(
++            runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
++            GossipRecvedEvent, GossipDeletedByGcEvent,
++            syncIntervalSeconds=0.1, gossipTTLSeconds=10
++        )
++        gossiper2 = await Gossiper.create(
++            runner2, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
++            GossipRecvedEvent, GossipDeletedByGcEvent,
++            syncIntervalSeconds=1, gossipTTLSeconds=10
++        )
++        
++        await runner2.begin()
++        await gossiper2.begin()
++        
++        await gossiper2.addGossip(gossipContent, (await getAddrs())[0])
+ 
+         assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 0
++        assert not len(l)
+ 
+         await asyncio.sleep(0.3)
+ 
+-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 1
+-        assert (await gossiper.getAllGossipData())[0] == gossipContent
++        assert len(l) == 0
+ 
+         await runner.end()
+         await gossiper2.end()
+diff --git a/tests/test_NetConfig.py b/tests/test_NetConfig.py
+deleted file mode 100644
+index 4c80c6a..0000000
+--- a/tests/test_NetConfig.py
++++ /dev/null
+@@ -1,13 +0,0 @@
+-from P4PCore.model.NetConfig import NetConfig
+-
+-
+-class TestNetConfig:
+-    def testCreate(self):
+-        config = NetConfig(addrV4=("127.0.0.1", 8080), addrV6=("::1", 8080))
+-        assert config.addrV4 == ("127.0.0.1", 8080)
+-        assert config.addrV6 == ("::1", 8080)
+-
+-    def testCreateWithNone(self):
+-        config = NetConfig(addrV4=None, addrV6=None)
+-        assert config.addrV4 is None
+-        assert config.addrV6 is None
+\ No newline at end of file

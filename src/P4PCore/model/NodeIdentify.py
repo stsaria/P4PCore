@@ -4,6 +4,9 @@ from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 
 @dataclass(frozen=True, kw_only=True)
 class NodeIdentify:
+    """
+    Identify a node by address and Ed25519 public key.
+    """
     ip:str
     port:int
     hashableEd25519PublicKey:HashableEd25519PublicKey
@@ -19,4 +22,7 @@ class NodeIdentify:
         )
     @property
     def addr(self) -> tuple[str, int]:
+        """
+        A tuple of the IP addr and port.
+        """
         return self.ip, self.port

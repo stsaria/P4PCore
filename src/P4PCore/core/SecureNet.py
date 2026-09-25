@@ -10,7 +10,6 @@ from P4PCore.event.SecureNetOverflowedEncrypterSeqOnRecverEvent import SecureNet
 from P4PCore.event.SecureNetOverflowedEncrypterSeqOnSenderEvent import SecureNetOverflowedEncrypterSeqOnSenderEvent
 from P4PCore.event.SecureNetStartedToHelloOnRecver import SecureNetStartedToHelloOnRecver
 from P4PCore.manager.Events import Events
-from P4PCore.exception import CancelException
 from P4PCore.model.Ed25519Signer import Ed25519Signer
 from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 from P4PCore.abstract.NetHandler import NetHandler
@@ -27,6 +26,9 @@ from P4PCore.model.X25519AndAesEncrypter import EncrypterOverflowException, X255
 from P4PCore.util import BytesSplitter
 
 class SecureNet(NetHandler, NetHandlerRegistry):
+    """
+    Provide secure peer-to-peer communication with Ed25519/X25519-based and AES handshakes and encryption.
+    """
     _net:Net
     _ed25519Signer:Ed25519Signer
     _waitingResponses:WaitingResponses
@@ -45,6 +47,15 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         addrToed25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey],
         events:Events
     ) -> "SecureNet":
+        """
+        Create a new secure network handler and register it with the user network.
+        :param net: The underlying network instance to use for secure communication.
+        :param userNet: The user network registry used to register this secure handler.
+        :param ed25519Signer: The signer used to authenticate secure connections.
+        :param addrToed25519PublicKeys: The mapping of addresses to known Ed25519 public keys.
+        :param events: The event manager used for secure network event notifications.
+        :return: The initialized SecureNet instance.
+        """
         inst = cls()
 
         inst._net = net
@@ -64,7 +75,9 @@ class SecureNet(NetHandler, NetHandlerRegistry):
     
     async def registerHandler(self, handler:NetHandler) -> bool:
         """
-        Register a handler for handling secure packets.
+        Register a handler that will receive decrypted secure packets.
+        :param handler: The handler to register for secure packet dispatch.
+        :return: True if the handler was successfully registered; otherwise False.
         """
         return await self._handlers.add(handler)
     
@@ -77,8 +90,13 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         FAILED_FIRST_HELLO = a()
     async def hello(self, nodeIdentify:NodeIdentify, firstHelloAttempts:int=0, secondHelloVolume:int=1, timeoutSec:float | None = None, encryptionSeqWindowSize:int=1) -> HelloResult:
         """
-        Connect to the node and return the result of the connection.
-        After calling this function, you can communicate with the node securely.
+        Establish a secure connection with the given node.
+        :param nodeIdentify: The remote node identity to connect to.
+        :param firstHelloAttempts: The number of first-hello attempts to make before failing.
+        :param secondHelloVolume: The number of second-hello attempts to send once the first stage succeeds.
+        :param timeoutSec: The timeout used while waiting for challenge responses.
+        :param encryptionSeqWindowSize: The sequence window size used by the X25519/AES encrypter.
+        :return: The result of the connection attempt.
         """
         if not await self._helloingAddrs.add(nodeIdentify.addr):
             return self.HelloResult.OTHER_FUNC_IS_ALREADY_TRYING_TO_CONNECT
@@ -150,8 +168,10 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         NET_DIDNT_BEGIN = a()
     async def sendToSecure(self, data:bytes, to:tuple[str, int] | NodeIdentify) -> SendToSecureResult:
         """
-        Send data to the node securely.
-        If the node hasn't connected, this function will return details about the failure.
+        Send encrypted data to the target node.
+        :param data: The plaintext payload to encrypt and send.
+        :param to: The destination address or node identity.
+        :return: The status of the send operation.
         """
         if isinstance(to, NodeIdentify):
             to = to.addr
@@ -174,12 +194,17 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         ) else self.SendToSecureResult.NET_DIDNT_BEGIN
     async def deleteNode(self, node:tuple[str, int] | NodeIdentify) -> bool:
         """
-        Delete node from encrypters
-        Warn: If you deleted node, You can't call sendToSecure method until call hello again.
+        Remove a node from the secure encryption registry.
+        :param node: The node address or identity to delete.
+        :return: True if the node existed and was removed; otherwise False.
         """
         await self._encrypters.delete(node.addr if isinstance(node, NodeIdentify) else node)
 
     async def getAddrs(self) -> list[tuple[str, int]]:
+        """
+        Get the addresses of nodes with active secure connections.
+        :return: A list of connected node addresses.
+        """
         return list((await self._encrypters.getAll()).keys())
 
     async def _recvHelloForTask(
@@ -321,8 +346,5 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         }.get(modeFlag)
         if not target:
             return
-        try:
-            await target(data, addr)
-        except CancelException:
-            pass
+        await target(data, addr)
 
