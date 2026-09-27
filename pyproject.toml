@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "P4PCore"
 dynamic = ["version"]
 description = "P4PCore is library for secure p2p communication."
+readme = "README.md"
 dependencies = [
     "cryptography",
     "xxhash"
