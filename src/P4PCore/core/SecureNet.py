@@ -38,6 +38,7 @@ class SecureNet(NetHandler, NetHandlerRegistry):
 
     _addrToEd25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey]
     _events:Events
+    _magic:bytes
     @classmethod
     async def create(
         cls,
@@ -45,7 +46,8 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         userNet:UserNet,
         ed25519Signer:Ed25519Signer,
         addrToed25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey],
-        events:Events
+        events:Events,
+        magic:bytes
     ) -> "SecureNet":
         """
         Create a new secure network handler and register it with the user network.
@@ -54,6 +56,7 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         :param ed25519Signer: The signer used to authenticate secure connections.
         :param addrToed25519PublicKeys: The mapping of addresses to known Ed25519 public keys.
         :param events: The event manager used for secure network event notifications.
+        :param magic: A byte string representing the packet flag. Default is b"P4P5".
         :return: The initialized SecureNet instance.
         """
         inst = cls()
@@ -67,6 +70,7 @@ class SecureNet(NetHandler, NetHandlerRegistry):
 
         inst._addrToEd25519PublicKeys = addrToed25519PublicKeys
         inst._events = events
+        inst._magic = magic
 
         if not await userNet.registerHandler(itob(PacketFlag.SECURE, PacketElementSize.PACKET_FLAG), inst):
             raise Exception("Cannot register for NetHandler. May be another handler registered for the same flag.")
@@ -170,13 +174,13 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         """
         Send encrypted data to the target node.
         :param data: The plaintext payload to encrypt and send.
-        :param to: The destination address or node identity.
+        :param to: The destination addr or node identity.
         :return: The status of the send operation.
         """
         if isinstance(to, NodeIdentify):
             to = to.addr
         
-        if len(data) > MAX_DATA_SIZE_ON_ENCRYPTED_AES:
+        if len(data) > MAX_DATA_SIZE_ON_ENCRYPTED_AES_EXCLUDING_MAGIC-len(self._magic):
             return self.SendToSecureResult.DATA_IS_TOO_LARGE
         elif not (encrypter := await self._encrypters.get(to)):
             return self.SendToSecureResult.NODE_HASNT_CONNECTED

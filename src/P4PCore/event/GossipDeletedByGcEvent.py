@@ -15,7 +15,6 @@ class GossipDeletedByGcEvent(P4PEvent):
     @property
     def gossipContent(self) -> bytes:
         """
-        Get the deleted gossip payload.
-        :return: The gossip content that was removed.
+        The gossip content that was removed.
         """
         return self._gossipContent

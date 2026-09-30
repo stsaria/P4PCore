@@ -8,15 +8,17 @@ from P4PCore.manager.Events import Events
 from P4PCore.protocol.Protocol import PacketElementSize, PacketFlag
 from P4PCore.util.BytesCoverter import itob
 
+MAGIC = b"P4P5"
+
 class TestNet:
     @pytest.mark.asyncio
     async def testNetCreate(self):
-        net = Net(Events())
+        net = Net(Events(), MAGIC)
         assert net.isRunning() is False
 
     @pytest.mark.asyncio
     async def testNetBeginAndEnd(self):
-        net = Net(Events())
+        net = Net(Events(), MAGIC)
         
         await net.begin()
         assert net.isRunning() is True
@@ -27,7 +29,7 @@ class TestNet:
 
     @pytest.mark.asyncio
     async def testNetSendToWithoutStart(self):
-        net = Net(Events())
+        net = Net(Events(), MAGIC)
         net.v4ListeningAddr = ("127.0.0.1", 0)
         net.v6ListeningAddr = ("::1", 0)
         
@@ -35,7 +37,7 @@ class TestNet:
 
     @pytest.mark.asyncio
     async def testNetSendToAfterStart(self):
-        net = Net(Events())
+        net = Net(Events(), MAGIC)
         net.v4ListeningAddr = ("127.0.0.1", 0)
         net.v6ListeningAddr = ("::1", 0)
         
@@ -49,7 +51,7 @@ class TestNet:
 class TestNetHandlerCommunication:
     @pytest.mark.asyncio
     async def testFullCommunication(self):
-        net = Net(Events())
+        net = Net(Events(), MAGIC)
 
         class TestNetHandler(NetHandler):
             def __init__(self):
@@ -64,7 +66,7 @@ class TestNetHandlerCommunication:
         await asyncio.sleep(0.1)
         assert net.isRunning()
 
-        net2 = Net(Events())
+        net2 = Net(Events(), MAGIC)
         await net2.begin()
         await asyncio.sleep(0.1)
         assert net2.isRunning()

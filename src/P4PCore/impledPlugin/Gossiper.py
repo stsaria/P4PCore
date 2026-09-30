@@ -18,7 +18,10 @@ from P4PCore.abstract.HasLoop import HasLoop
 
 
 class Gossiper(NetHandler, HasLoop):
-    """Coordinate gossip propagation and garbage collection across peers in the P4P network."""
+    """
+    Coordinate gossip propagation and garbage collection across peers in the P4P network.
+    You can't send messages securely by this class.
+    """
     _runner:P4PRunner
     _uuidFlag:UUID
     _gossipLength:int
@@ -28,7 +31,7 @@ class Gossiper(NetHandler, HasLoop):
     _gossipDeletedByGcEventClass:Type[GossipDeletedByGcEvent]
 
     _gossipBytesToFoundTimesAndAddrs:SimpleCannotOverwriteKVManager[bytes, tuple[float, tuple[str, int] | None]]
-    _syncerTask:Task
+    _syncerTask:Task | None
 
     _gossipTTLSeconds:float
     _syncNodeCountPerOneTime:int
@@ -65,12 +68,17 @@ class Gossiper(NetHandler, HasLoop):
         :param syncNodeCountPerOneTime: The number of nodes to synchronize with in one time (> 0).
         :param syncIntervalSeconds: The interval between synchronization attempts in seconds (>= 0).
         :param maximumSavedDataCount: The maximum number of gossip messages to save. (> 0)
-        :param requiredGossip: The gossip message that is required to be shared every time (% gossipLength == 0).
+        :param requiredGossipImport block is un-sorted or un-formatted
+        help: Organize imports (Ruff I001): The gossip message that is required to be shared every time (% gossipLength == 0).
         :return: An instance of the Gossiper class.
         """
         inst = cls()
         inst._runner = runner
         inst._uuidFlag = uuidFlag
+
+
+
+
         inst._gossipLength = gossipLength
         inst._maximumGossipCountPerMessage = maximumGossipCountPerMessage
         inst._getAddrsFunc = getAddrsFunc
@@ -166,11 +174,11 @@ class Gossiper(NetHandler, HasLoop):
         gossips = list((await self._gossipBytesToFoundTimesAndAddrs.getAll()).items())
         if not gossips:
             return
-        
+
         addrs = list(await self._getAddrsFunc())
         if not addrs:
             return
-        
+
         for addr in random.sample(addrs, min(self._syncNodeCountPerOneTime, len(addrs))):
             selectedGossips = random.sample(
                 gossips,
@@ -181,7 +189,7 @@ class Gossiper(NetHandler, HasLoop):
                 for gossip in selectedGossips
                 if gossip[1][1] != addr
             )
-            
+
             self._gossip(addr, payload)
 
     async def _syncer(self) -> None:

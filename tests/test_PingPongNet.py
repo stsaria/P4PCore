@@ -5,6 +5,8 @@ from P4PCore.core.PingPongNet import PingPongNet
 from P4PCore.manager.Events import Events
 from P4PCore.core.Net import Net
 
+MAGIC = b"P4P5"
+
 class TestPingPongNet:
     @pytest.mark.asyncio
     async def testPing(self):
@@ -17,7 +19,7 @@ class TestPingPongNet:
         assert await runner2.pingPongNet.ping(runner.net._protocolV4.transport.get_extra_info("sockname"), timeoutSecs=0.1)
     @pytest.mark.asyncio
     async def testPingTimeout(self):
-        net = Net(Events())
+        net = Net(Events(), MAGIC)
         await net.begin()
 
         runner2 = await P4PRunner.create()
