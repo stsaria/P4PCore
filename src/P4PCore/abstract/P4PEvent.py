@@ -10,4 +10,3 @@ class P4PEvent(ABC):
         Check whether the event should be processed asynchronously.
         :return: True if the event is asynchronous, otherwise False.
         """
-        ...
