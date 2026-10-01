@@ -71,7 +71,7 @@ class Gossiper(NetHandler, HasLoop):
         :param syncIntervalSeconds: The interval between synchronization attempts in seconds (>= 0).
         :param maximumSavedDataCount: The maximum number of gossip messages to save (> 0).
         :param requiredGossip: The gossip message that is required to be shared every time (% gossipLength == 0).
-        :param minimumSavedDataCount: The minimum number of gossip messages to save. If saved data size is less than this, no messages will be deleted (> 0).
+        :param minimumSavedDataCount: The minimum number of gossip messages to save. If saved data size is less than this, no messages will be deleted (>= 0).
         :return: An instance of the Gossiper class.
         """
         inst = cls()
@@ -97,7 +97,7 @@ class Gossiper(NetHandler, HasLoop):
         elif len(requiredGossip) % gossipLength != 0:
             raise ValueError("len(requiredGossip) % gossipLength == 0")
         elif minimumSavedDataCount <= 0:
-            raise ValueError("minimumSavedDataCount > 0")
+            raise ValueError("minimumSavedDataCount >= 0")
         inst._gossipTTLSeconds = gossipTTLSeconds
         inst._syncNodeCountPerOneTime = syncNodeCountPerOneTime
         inst._syncIntervalSeconds = syncIntervalSeconds
