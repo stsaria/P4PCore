@@ -96,7 +96,7 @@ class Gossiper(NetHandler, HasLoop):
             raise ValueError("maximumSavedDataCount > 0")
         elif len(requiredGossip) % gossipLength != 0:
             raise ValueError("len(requiredGossip) % gossipLength == 0")
-        elif minimumSavedDataCount <= 0:
+        elif minimumSavedDataCount < 0:
             raise ValueError("minimumSavedDataCount >= 0")
         inst._gossipTTLSeconds = gossipTTLSeconds
         inst._syncNodeCountPerOneTime = syncNodeCountPerOneTime

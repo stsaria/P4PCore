@@ -64,7 +64,8 @@ class TestGossiper:
         gossiper = await Gossiper.create(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
             GossipRecvedEvent, GossipDeletedByGcEvent,
-            gossipTTLSeconds=0.2
+            gossipTTLSeconds=0.2,
+            minimumSavedDataCount=0
         )
         await runner.begin()
         await gossiper.begin()
