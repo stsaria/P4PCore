@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-import logging
 import random
 from asyncio import Task
 from typing import Callable, Type, Awaitable
