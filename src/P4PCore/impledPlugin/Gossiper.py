@@ -38,6 +38,7 @@ class Gossiper(NetHandler, HasLoop):
     _syncIntervalSeconds:float
     _maximumSavedDataCount:int
     _requiredGossip:bytes
+    _minimumSavedDataCount:int
 
     @classmethod
     async def create(
@@ -53,7 +54,8 @@ class Gossiper(NetHandler, HasLoop):
         syncNodeCountPerOneTime:int=6,
         syncIntervalSeconds:float=5.0,
         maximumSavedDataCount:int=100,
-        requiredGossip:bytes=b""
+        requiredGossip:bytes=b"",
+        minimumSavedDataCount:int=20
     ) -> "Gossiper":
         """
         Create a new instance of the Gossiper class
@@ -67,18 +69,14 @@ class Gossiper(NetHandler, HasLoop):
         :param gossipTTLSeconds: The time-to-live for each gossip message in seconds (> 0).
         :param syncNodeCountPerOneTime: The number of nodes to synchronize with in one time (> 0).
         :param syncIntervalSeconds: The interval between synchronization attempts in seconds (>= 0).
-        :param maximumSavedDataCount: The maximum number of gossip messages to save. (> 0)
-        :param requiredGossipImport block is un-sorted or un-formatted
-        help: Organize imports (Ruff I001): The gossip message that is required to be shared every time (% gossipLength == 0).
+        :param maximumSavedDataCount: The maximum number of gossip messages to save (> 0).
+        :param requiredGossip: The gossip message that is required to be shared every time (% gossipLength == 0).
+        :param minimumSavedDataCount: The minimum number of gossip messages to save. If saved data size is less than this, no messages will be deleted (> 0).
         :return: An instance of the Gossiper class.
         """
         inst = cls()
         inst._runner = runner
         inst._uuidFlag = uuidFlag
-
-
-
-
         inst._gossipLength = gossipLength
         inst._maximumGossipCountPerMessage = maximumGossipCountPerMessage
         inst._getAddrsFunc = getAddrsFunc
@@ -98,11 +96,14 @@ class Gossiper(NetHandler, HasLoop):
             raise ValueError("maximumSavedDataCount > 0")
         elif len(requiredGossip) % gossipLength != 0:
             raise ValueError("len(requiredGossip) % gossipLength == 0")
+        elif minimumSavedDataCount <= 0:
+            raise ValueError("minimumSavedDataCount > 0")
         inst._gossipTTLSeconds = gossipTTLSeconds
         inst._syncNodeCountPerOneTime = syncNodeCountPerOneTime
         inst._syncIntervalSeconds = syncIntervalSeconds
         inst._maximumSavedDataCount = maximumSavedDataCount
         inst._requiredGossip = requiredGossip
+        inst._minimumSavedDataCount = minimumSavedDataCount
 
         await inst._runner.userNet.registerHandler(inst._uuidFlag.bytes, inst)
 
@@ -150,7 +151,10 @@ class Gossiper(NetHandler, HasLoop):
 
     async def _gc(self) -> None:
         now = asyncio.get_running_loop().time()
-        for gossipB, (addedTime, _) in (await self._gossipBytesToFoundTimesAndAddrs.getAll()).items():
+        gossips = (await self._gossipBytesToFoundTimesAndAddrs.getAll()).items()
+        if len(gossips) <= self._minimumSavedDataCount:
+            return
+        for gossipB, (addedTime, _) in gossips:
             if (now - addedTime) > self._gossipTTLSeconds:
                 await self._gossipBytesToFoundTimesAndAddrs.delete(gossipB)
                 await self._runner.eventsManager.triggerEvent(
