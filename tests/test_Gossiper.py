@@ -86,6 +86,32 @@ class TestGossiper:
         await runner.end()
 
     @pytest.mark.asyncio
+    async def testGossipTTLAndGCWithMinimumSavedDataCount(self):
+        runner = await P4PRunner.create()
+
+        async def getAddrs():
+            return []
+        gossiper = await Gossiper.create(
+            runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
+            GossipRecvedEvent, GossipDeletedByGcEvent,
+            gossipTTLSeconds=0.2,
+            minimumSavedDataCount=1
+        )
+        await runner.begin()
+        await gossiper.begin()
+
+        gossipContent = os.urandom(GOSSIP_LENGTH)
+        await gossiper.addGossip(gossipContent)
+        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 1
+
+        await asyncio.sleep(0.3)
+        await gossiper._gc()
+        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 1
+
+        await gossiper.end()
+        await runner.end()
+
+    @pytest.mark.asyncio
     async def testSync(self):
         runner = await P4PRunner.create()
         l = []
