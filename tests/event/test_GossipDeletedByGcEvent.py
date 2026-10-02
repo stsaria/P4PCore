@@ -24,7 +24,8 @@ class TestGossipDeletedByGcEvent:
         gossiper = await Gossiper.create(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE,
             getAddrs, GossipRecvedEvent, GossipDeletedByGcEvent,
-            gossipTTLSeconds=0.1
+            gossipTTLSeconds=0.1,
+            minimumSavedDataCount=0
         )
         await runner.begin()
         await gossiper.begin()
