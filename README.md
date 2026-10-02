@@ -1,39 +1,22 @@
 # P4PCore
+P4PCore is an asynchronous, P2P library built on the P4P protocol.
+The P4P protocol is demonstrated in the programs within this repository.
 
-P4PCore is an asynchronous Python library for peer-to-peer networking.
+## Getting Started
+P4PCore is not published to PyPI or other pip repositories, so install it from a branch or release source.
 
-It is built around awaitable lifecycle methods and async message handling. Components such as the runner, network layers, event manager, and secure communication stack are designed to operate with Python's async model rather than blocking I/O.
-
-The main structure is centered on a runner object that initializes the underlying network, attaches handler-based routing, and exposes separate layers for plain user traffic, encrypted traffic, and reachability checks. The project is intended for applications that need asynchronous communication, event-driven processing, and optional secure peer-to-peer messaging.
-
-## Get Started
-
-In pyproject.toml:
-
+pyproject.toml
 ```toml
 [project]
 dependencies = [
-    "P4PCore @ git+https://github.com/stsaria/P4PCore.git@<tag(version)-or-commit>"
+    "P4PCore==<version>"
 ]
 ```
 
-For example:
-
-```toml
-[project]
-dependencies = [
-    "P4PCore @ git+https://github.com/stsaria/P4PCore.git@0.1.7"
-]
+bash
+```
+pip install git+https://github.com/stsaria/P4PCore.git@<version>
+pip install .
 ```
 
-In requirements.txt:
-
-```txt
-git+https://github.com/stsaria/P4PCore.git@<tag-or-commit>
-```
-
-After installation, import it as:
-
-```python
-from P4PCore.P4PRunner import P4PRunner
-```
+This installs the library in the same way.

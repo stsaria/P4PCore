@@ -17,15 +17,13 @@ class GossipRecvedEvent(P4PEvent):
     @property
     def gossipContent(self) -> bytes:
         """
-        The received gossip payload.
-        :return: The gossip content sent by the node.
+        The gossip content sent by the node.
         """
         return self._gossipContent
 
     @property
     def addr(self) -> tuple[str, int]:
         """
-        The sender's address.
-        :return: The address of the sender.
+        The address of the sender.
         """
         return self._addr

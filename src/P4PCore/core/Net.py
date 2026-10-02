@@ -8,13 +8,13 @@ from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.event.NetOccurredUnhandledExceptionEvent import NetOccurredUnhandledExceptionEvent
 from P4PCore.manager.Events import Events
 from P4PCore.manager.SimpleImpls import SimpleSetManager
-from P4PCore.protocol.Protocol import MAGIC, SOCKET_BUFFER, PacketElementSize
+from P4PCore.protocol.Protocol import SOCKET_BUFFER, PacketElementSize
 
 class _NetServerProtocol(DatagramProtocol):
-    def __init__(self, net:Net):
+    def __init__(self, net:Net, magic:bytes):
         self._net:Net = net
-
-        self.transport:DatagramTransport = None
+        self._magic:bytes = magic
+        self.transport:DatagramTransport | None = None
     def connection_made(self, transport:DatagramTransport):
         self.transport = transport
     async def _arecved(self, data:bytes, addr:tuple[str, int], recvedTime:float) -> None:
@@ -28,20 +28,22 @@ class _NetServerProtocol(DatagramProtocol):
         recvedTime = asyncio.get_running_loop().time()
         if len(data) > SOCKET_BUFFER:
             return
-        elif data[:len(MAGIC)] != MAGIC:
+        elif data[:len(self._magic)] != self._magic:
             return
-        asyncio.create_task(self._arecved(data[len(MAGIC):], addr, recvedTime))
+        asyncio.create_task(self._arecved(data[len(self._magic):], addr, recvedTime))
 
 class Net(NetHandlerRegistry, HasLoop):
     """
     Manage UDP socket setup, packet dispatch, and network lifecycle for the project.
     """
-    def __init__(self, events:Events) -> None:
+    def __init__(self, events:Events, magic:bytes) -> None:
         """
         Initialize a network instance with its event manager and handler registry.
         :param events: The event manager used to emit network exceptions and other events.
+        :param magic: A byte string representing the packet flag.
         """
         self._events:Events = events
+        self._magic:bytes = magic
 
         self._handlers:SimpleSetManager[NetHandler] = SimpleSetManager()
 
@@ -94,9 +96,9 @@ class Net(NetHandlerRegistry, HasLoop):
             return False
         elif not (t := p.transport):
             return False
-        elif PacketElementSize.MAGIC+len(data) > SOCKET_BUFFER:
+        elif len(self._magic)+len(data) > SOCKET_BUFFER:
             return False
-        t.sendto(MAGIC+data, addr)
+        t.sendto(self._magic+data, addr)
         return True
 
     def isRunning(self) -> bool:
@@ -114,18 +116,18 @@ class Net(NetHandlerRegistry, HasLoop):
         """
         loop = asyncio.get_running_loop()
         self._sem = Semaphore(self._semaphoreLimits)
-        
+
         if self.v4ListeningAddr:
             _, self._protocolV4 = await loop.create_datagram_endpoint(
-                lambda: _NetServerProtocol(self),
+                lambda: _NetServerProtocol(self, self._magic),
                 local_addr=self._v4ListeningAddr
             )
         if self.v6ListeningAddr:
             _, self._protocolV6 = await loop.create_datagram_endpoint(
-                lambda: _NetServerProtocol(self),
+                lambda: _NetServerProtocol(self, self._magic),
                 local_addr=self._v6ListeningAddr
             )
-    
+
     async def end(self) -> None:
         """
         Stop the network server and close both active transports.

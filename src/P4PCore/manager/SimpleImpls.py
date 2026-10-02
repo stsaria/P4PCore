@@ -1,5 +1,6 @@
 from asyncio import Lock
-from typing import Awaitable, Callable, TypeVar, ParamSpec, Concatenate, Generic
+from collections.abc import Awaitable, Callable
+from typing import Concatenate, Generic, ParamSpec, TypeVar
 
 from P4PCore.interface.Manager import *
 
@@ -10,7 +11,7 @@ K = TypeVar("K")
 V = TypeVar("V")
 I = TypeVar("I")
 
-class SimpleSetManager(SetManager, Generic[I]):
+class SimpleSetManager[I](SetManager):
     """
     A simple implementation of a set manager that provides thread-safe operations on a set.
     """
@@ -77,7 +78,7 @@ class SimpleSetManager(SetManager, Generic[I]):
                 return await r
             return r
 
-class SimpleListManager(ListManager, Generic[I]):
+class SimpleListManager[I](ListManager):
     """
     A simple implementation of a list manager that provides thread-safe operations on a list.
     """
@@ -182,7 +183,7 @@ class SimpleListManager(ListManager, Generic[I]):
                 return await r
             return r
 
-class _BaseKVManager(Generic[K, V]):
+class _BaseKVManager[K, V]:
     def __init__(self):
         """
         Initialize the manager.
@@ -202,7 +203,7 @@ class _BaseKVManager(Generic[K, V]):
             if isinstance(r, Awaitable):
                 return await r
             return r
-class _BaseBiKVManager(Generic[K, V]):
+class _BaseBiKVManager[K, V]:
     def __init__(self):
         """
         Initialize the manager.
@@ -223,7 +224,7 @@ class _BaseBiKVManager(Generic[K, V]):
             if isinstance(r, Awaitable):
                 return await r
             return r
-class _WriteKVMixin(WriteableKV, Generic[K, V]):
+class _WriteKVMixin[K, V](WriteableKV):
     async def put(self:_BaseKVManager[K, V], key:K, value:V) -> V | None:
         """
         Put a value for the specified key and return the previous value if one existed.
@@ -235,7 +236,7 @@ class _WriteKVMixin(WriteableKV, Generic[K, V]):
             oV = self._dict.get(key)
             self._dict[key] = value
         return oV
-class _AddKVMixin(AddableKV, Generic[K, V]):
+class _AddKVMixin[K, V](AddableKV):
     async def add(self:_BaseKVManager[K, V], key:K, value:V) -> bool:
         """
         Add a key-value pair only when the key is not already present.
@@ -248,7 +249,7 @@ class _AddKVMixin(AddableKV, Generic[K, V]):
                 return self._dict[key] == value
             self._dict[key] = value
         return True
-class _AddBiKVMixin(AddableBiKV, Generic[K, V]):
+class _AddBiKVMixin[K, V](AddableBiKV):
     async def add(self:_BaseBiKVManager[K, V], key:K, value:V) -> bool:
         """
         Add a bidirectional mapping only when both the key and value are absent.
@@ -262,7 +263,7 @@ class _AddBiKVMixin(AddableBiKV, Generic[K, V]):
             self._dict[key] = value
             self._rDict[value] = key
         return True
-class _ReadKVMixin(ReadableKV, Generic[K, V]):
+class _ReadKVMixin[K, V](ReadableKV):
     async def get(self:_BaseKVManager[K, V], key:K) -> V | None:
         """
         Get the value associated with the specified key.
@@ -285,7 +286,7 @@ class _ReadKVMixin(ReadableKV, Generic[K, V]):
         """
         async with self._dictLock:
             return len(self._dict)
-class _ReadBiKVMixin(ReadableBiKV, Generic[K, V]):
+class _ReadBiKVMixin[K, V](ReadableBiKV):
     async def get(self:_BaseBiKVManager[K, V], key:K) -> V | None:
         """
         Get the value associated with the specified key.
@@ -316,13 +317,13 @@ class _ReadBiKVMixin(ReadableBiKV, Generic[K, V]):
         """
         async with self._dictLock:
             return len(self._dict)
-class _DeleteKVMixin(DeletableKV, Generic[K, V]):
+class _DeleteKVMixin[K, V](DeletableKV):
     async def delete(self:_BaseKVManager[K, V], key:K) -> V | None:
         """
         Delete the value for the specified key and return the removed value.
         :param key: The key to delete.
         :return: The removed value, or None if the key was absent.
-        """
+        """, Generic[K, V]
         async with self._dictLock:
             return self._dict.pop(key, None)
     async def clear(self:_BaseKVManager[K, V]) -> None:
@@ -331,7 +332,7 @@ class _DeleteKVMixin(DeletableKV, Generic[K, V]):
         """
         async with self._dictLock:
             self._dict.clear()
-class _DeleteBiKVMixin(DeletableBiKV, Generic[K, V]):
+class _DeleteBiKVMixin[K, V](DeletableBiKV):
     async def delete(self:_BaseBiKVManager[K, V], key:K) -> bool:
         """
         Delete a mapping for the specified key and remove its reverse lookup entry.
@@ -360,28 +361,23 @@ class _DeleteBiKVMixin(DeletableBiKV, Generic[K, V]):
             self._dict.clear()
             self._rDict.clear()
 
-class SimpleKVManager(Generic[K, V], _BaseKVManager[K, V], _ReadKVMixin[K, V], _WriteKVMixin[K, V], _DeleteKVMixin[K, V]):
+class SimpleKVManager[K, V](_BaseKVManager[K, V], _ReadKVMixin[K, V], _WriteKVMixin[K, V], _DeleteKVMixin[K, V]):
     """
     A simple implementation of a key-value manager that provides thread-safe dictionary operations.
     """
-    pass
-class SimpleCannotOverwriteKVManager(Generic[K, V], _BaseKVManager[K, V], _ReadKVMixin[K, V], _AddKVMixin[K, V], _DeleteKVMixin[K, V]):
+class SimpleCannotOverwriteKVManager[K, V](_BaseKVManager[K, V], _ReadKVMixin[K, V], _AddKVMixin[K, V], _DeleteKVMixin[K, V]):
     """
     A simple implementation of a key-value manager that prevents overwriting existing entries.
     """
-    pass
-class SimpleCannotDeleteKVManager(Generic[K, V], _BaseKVManager[K, V], _ReadKVMixin[K, V], _WriteKVMixin[K, V]):
+class SimpleCannotDeleteKVManager[K, V](_BaseKVManager[K, V], _ReadKVMixin[K, V], _WriteKVMixin[K, V]):
     """
     A simple implementation of a key-value manager that prevents deletion while allowing updates.
     """
-    pass
-class SimpleCannotDeleteAndOverwriteKVManager(Generic[K, V], _BaseKVManager[K, V], _ReadKVMixin[K, V], _AddKVMixin[K, V]):
+class SimpleCannotDeleteAndOverwriteKVManager[K, V](_BaseKVManager[K, V], _ReadKVMixin[K, V], _AddKVMixin[K, V]):
     """
     A simple implementation of a key-value manager that prevents deletion and overwriting existing entries.
     """
-    pass
-class SimpleCannotDeleteAndOverwriteBiKVManager(Generic[K, V], _BaseBiKVManager[K, V], _ReadBiKVMixin[K, V], _AddBiKVMixin[K, V]):
+class SimpleCannotDeleteAndOverwriteBiKVManager[K, V](_BaseBiKVManager[K, V], _ReadBiKVMixin[K, V], _AddBiKVMixin[K, V]):
     """
     A simple implementation of a bidirectional key-value manager that prevents deletion and overwriting existing entries.
     """
-    pass
