@@ -1,4 +1,5 @@
 # P4PCore
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/stsaria/P4PCore)
 P4PCore is an asynchronous, P2P library built on the P4P protocol.
 The P4P protocol is demonstrated in the programs within this repository.
 
