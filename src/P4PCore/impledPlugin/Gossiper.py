@@ -102,7 +102,7 @@ class Gossiper(NetHandler, HasLoop):
             return True
         return False
 
-    async def deleteGossip(self, gossipB:bytes) -> bool:
+    def deleteGossip(self, gossipB:bytes) -> bool:
         """
         Remove a gossip payload from the local store.
         :param gossipB: The gossip payload to remove.
