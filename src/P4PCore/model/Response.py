@@ -1,8 +1,8 @@
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 RV = TypeVar("RV")
 
-class Response(Generic[RV]):
+class Response[RV]:
     """
     Hold a response payload and an optional identifier for a subsequent response.
     """

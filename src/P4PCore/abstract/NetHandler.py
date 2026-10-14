@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Awaitable
+from collections.abc import Awaitable
 
 class NetHandler(ABC):
     """

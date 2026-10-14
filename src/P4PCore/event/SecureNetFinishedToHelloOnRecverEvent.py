@@ -7,7 +7,6 @@ class SecureNetFinishedToHelloOnRecverEventResult(Enum):
     Result codes for the secure connection hello process on the receiver side.
     """
     SUCCESS = auto()
-    FAILED_CHALLENGE = auto()
     ALREADY_EXISTS_BUT_DIFFRENT_PUBLIC_KEY = auto()
 
 class SecureNetFinishedToHelloOnRecverEvent(P4PEvent):

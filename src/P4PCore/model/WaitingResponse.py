@@ -1,7 +1,7 @@
 import asyncio
 from asyncio import Future, InvalidStateError
 from asyncio.exceptions import CancelledError, TimeoutError
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from P4PCore.model.Response import Response
 from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
@@ -9,7 +9,7 @@ from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
 OI = TypeVar("OI")
 RV = TypeVar("RV")
 
-class WaitingResponse(Generic[OI, RV]):
+class WaitingResponse[OI, RV]:
     """
     Represent a pending response whose value will be resolved later.
     """
@@ -21,7 +21,8 @@ class WaitingResponse(Generic[OI, RV]):
         """
         self._waitingResponseInfo:WaitingResponseInfo = waitingResponseInfo
         self._otherInfo:OI = otherInfo
-        self._responseFuture:Future[Response[RV] | None] = Future()
+        loop = asyncio.get_running_loop()
+        self._responseFuture:Future[Response[RV] | None] = loop.create_future()
     def setResponse(self, response:Response[RV] | None) -> bool:
         """
         Set the eventual response for this waiting call.
@@ -33,14 +34,19 @@ class WaitingResponse(Generic[OI, RV]):
             return True
         except InvalidStateError:
             return False
-    async def waitAndGet(self, timeoutSec:float | None=None) -> Response[RV] | None:
+    def newFuture(self) -> None:
+        """
+        """
+        loop = asyncio.get_running_loop()
+        self._responseFuture = loop.create_future()
+    async def waitAndGet(self, timeoutSeconds:float | None=None) -> Response[RV] | None:
         """
         Wait for the response to arrive until the timeout expires.
         :param timeoutSec: The maximum time to wait in seconds, or None for no timeout.
         :return: The response value if it arrives in time, otherwise None.
         """
         try:
-            return await asyncio.wait_for(self._responseFuture, timeout=timeoutSec)
+            return await asyncio.wait_for(self._responseFuture, timeout=timeoutSeconds)
         except (TimeoutError, CancelledError):
             return None
     @property

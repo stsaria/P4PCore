@@ -5,8 +5,7 @@ from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 
 
 class TestHashableEd25519PublicKey:
-    @pytest.mark.asyncio
-    async def testCreateByKey(self):
+    def testCreateByKey(self):
         privateKey = Ed25519PrivateKey.generate()
         pubKeyB = privateKey.public_key().public_bytes_raw()
         hashablePubKey = HashableEd25519PublicKey(pubKeyB)

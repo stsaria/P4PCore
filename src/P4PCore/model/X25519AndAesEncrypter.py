@@ -1,5 +1,4 @@
 import os
-import asyncio
 from asyncio import Lock
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey, X25519PrivateKey
 from cryptography.hazmat.primitives.hashes import SHA256
@@ -41,7 +40,7 @@ class X25519AndAesgcmEncrypter:
     """
     Encrypt and decrypt data using X25519 key agreement and AES-GCM with sequence tracking.
     """
-    def __init__(self, amIFirstNodeToHello:bool, encryptSeqWindowSize:int, salt:bytes | None = None, encryptSeqLimits:int = MAX_SEQ_OF_SECURE_NET):
+    def __init__(self, amIFirstNodeToHello:bool, encryptSeqWindowSize:int, encryptSeqLimits:int = MAX_SEQ_OF_SECURE_NET):
         """
         Initialize the encrypter with hello-order and sequence-window settings.
         :param amIFirstNodeToHello: True when this node initiates the hello exchange, otherwise False.
@@ -53,106 +52,118 @@ class X25519AndAesgcmEncrypter:
         self._encryptSeqWindowSize:int = encryptSeqWindowSize
         self._encryptSeqLimits:int = encryptSeqLimits
 
-        self._salt:bytes = salt if not salt is None else os.urandom(SecurePacketElementSize.AES_SALT)
+        self._salt:bytes = os.urandom(SecurePacketElementSize.AES_SALT)
         self._myX25519PrivateKey:X25519PrivateKey = X25519PrivateKey.generate()
+        self._otherPartyX25519PublicKey:X25519PublicKey | None = None
         
         self._sharedSecret:bytes | None = None
         self._aesKey:AESGCM | None = None
         self._secretsLock:Lock = Lock()
 
         self._seq:int = 0
-        self._seqLock:Lock = Lock()
 
         self._otherPartySeq:int = 0
         self._otherPartySeqBitmap:int = 0
-        self._otherPartySeqLock:Lock = Lock()
-    def _deriveSharedSecretSyncronized(self, otherPartyX25519PublicKey:X25519PublicKey) -> None:
+    
+    def derive(self) -> None:
+        """
+        Derive the shared secret and AES key using the peer public key bytes.
+        :param otherPartyX25519PublicKeyBytes: The raw X25519 public key bytes of the peer.
+        """
+        if not self._otherPartyX25519PublicKey:
+            return
+
         self._sharedSecret = HKDF(
             algorithm=SHA256(),
             length=32,
             salt=self._salt,
             info=X25519_DERIVE_KEY_INFO
-        ).derive(self._myX25519PrivateKey.exchange(otherPartyX25519PublicKey))
-    def _deriveAesKeySyncronized(self, info:bytes) -> None:
+        ).derive(self._myX25519PrivateKey.exchange(self._otherPartyX25519PublicKey))
         self._aesKey = AESGCM(
             HKDF(
                 algorithm=SHA256(),
                 length=32,
                 salt=self._salt,
-                info=info
+                info=X25519S_SHARED_SECRET_AND_AES_KEY_INFO
             ).derive(self._sharedSecret)
         )
-    async def derive(self, otherPartyX25519PublicKeyBytes:bytes) -> None:
-        """
-        Derive the shared secret and AES key using the peer public key bytes.
-        :param otherPartyX25519PublicKeyBytes: The raw X25519 public key bytes of the peer.
-        """
-        oPK = X25519PublicKey.from_public_bytes(
-            otherPartyX25519PublicKeyBytes
-        )
-        async with self._secretsLock:
-            await asyncio.to_thread(self._deriveSharedSecretSyncronized, oPK)
-            await asyncio.to_thread(self._deriveAesKeySyncronized, X25519S_SHARED_SECRET_AND_AES_KEY_INFO)
-    async def encrypt(self, data:bytes) -> tuple[int, bytes]:
+    
+    def encrypt(self, data:bytes) -> tuple[int, bytes]:
         """
         Encrypt data using the derived AES-GCM key and incrementing sequence number.
         :param data: The plaintext bytes to encrypt.
         :return: A tuple containing the sequence number and the ciphertext bytes.
         """
-        async with self._secretsLock:
-            if self._aesKey is None:
-                raise Exception("Shared secret and AES key are not derived yet.")
-        async with self._seqLock:
-            self._seq += 1
-            seq = self._seq
-            if seq > self._encryptSeqLimits:
-                raise EncrypterOverflowException(seq, data)
+        if self._aesKey is None:
+            raise Exception("Shared secret and AES key are not derived yet.")
+            
+        self._seq += 1
+        if self._seq > self._encryptSeqLimits:
+            raise EncrypterOverflowException(self._seq, data)
+        
         nonceBA = bytearray(AESGCM_NONCE_SIZE)
         nonceBA[0] = 0x01 if self._amIFirstNodeToHello else 0x00
-        nonceBA[AESGCM_NONCE_SIZE-PacketElementSize.SEQ:] = itob(seq, PacketElementSize.SEQ)
-        return seq, await asyncio.to_thread(self._aesKey.encrypt, bytes(nonceBA), data, None)
-    async def decrypt(self, encryptedData:bytes, seq:int) -> bytes | None:
+        nonceBA[AESGCM_NONCE_SIZE-PacketElementSize.SEQ:] = itob(self._seq, PacketElementSize.SEQ)
+
+        return self._seq, self._aesKey.encrypt(bytes(nonceBA), data, None)
+    
+    def decrypt(self, encryptedData:bytes, seq:int) -> bytes | None:
         """
         Decrypt data using the sequence number and reject replayed or out-of-window packets.
         :param encryptedData: The ciphertext bytes to decrypt.
         :param seq: The sequence number associated with the ciphertext.
         :return: The decrypted plaintext bytes if valid, otherwise None.
         """
-        async with self._secretsLock:
-            if self._aesKey is None:
-                raise Exception("Shared secret and AES key are not derived yet.")
+        if self._aesKey is None:
+            raise Exception("Shared secret and AES key are not derived yet.")
+        
         nonceBA = bytearray(AESGCM_NONCE_SIZE)
         nonceBA[0] = 0x00 if self._amIFirstNodeToHello else 0x01
         nonceBA[AESGCM_NONCE_SIZE-PacketElementSize.SEQ:] = itob(seq, PacketElementSize.SEQ)
+        
         try:
-            data = await asyncio.to_thread(self._aesKey.decrypt, bytes(nonceBA), encryptedData, None)
+            data = self._aesKey.decrypt(bytes(nonceBA), encryptedData, None)
         except InvalidTag:
             return None
-        async with self._otherPartySeqLock:
+        
+        if seq > self._otherPartySeq:
+            diff = seq - self._otherPartySeq
+            self._otherPartySeqBitmap = (self._otherPartySeqBitmap << diff) & ((1 << self._encryptSeqWindowSize)-1)
+            self._otherPartySeqBitmap |= 1
+            self._otherPartySeq = seq
+            if seq > self._encryptSeqLimits:
+                raise EncrypterOverflowException(seq, data)
+        else:
             diff = self._otherPartySeq - seq
-            if seq > self._otherPartySeq:
-                diff = seq - self._otherPartySeq
-                self._otherPartySeqBitmap = (self._otherPartySeqBitmap << diff) & ((1 << self._encryptSeqWindowSize)-1)
-                self._otherPartySeqBitmap |= 1
-                self._otherPartySeq = seq
-                if seq > self._encryptSeqLimits:
-                    raise EncrypterOverflowException(seq, data)
-            elif diff < self._encryptSeqWindowSize:
+            if diff < self._encryptSeqWindowSize:
                 if (self._otherPartySeqBitmap >> diff) & 1:
                     return None
                 self._otherPartySeqBitmap |= (1 << diff)
             else:
                 return None
+        
         return data
+    
     @property
     def salt(self) -> bytes:
         """
         The salt bytes used in the HKDF derivation.
         """
         return self._salt
+    @salt.setter
+    def salt(self, salt:bytes) -> None:
+        self._salt = salt
     @property
     def myX25519PublicKeyBytes(self) -> bytes:
         """
         The raw public X25519 key bytes.
         """
         return self._myX25519PrivateKey.public_key().public_bytes_raw()
+    @property
+    def otherPartyX25519PublicKeyBytes(self) -> bytes | None:
+        """
+        """
+        return self._otherPartyX25519PublicKey.public_bytes_raw()
+    @otherPartyX25519PublicKeyBytes.setter
+    def otherPartyX25519PublicKeyBytes(self, otherPartyX25519PublicKeyBytes:bytes) -> None:
+        self._otherPartyX25519PublicKey = X25519PublicKey.from_public_bytes(otherPartyX25519PublicKeyBytes)

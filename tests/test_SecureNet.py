@@ -8,9 +8,8 @@ import pytest
 import asyncio
 
 class TestSecureNet:
-    @pytest.mark.asyncio
-    async def testSecureNetRegisterHandler(self):
-        runner = await P4PRunner.create()
+    def testSecureNetRegisterHandler(self):
+        runner = P4PRunner()
         
         class DummyHandler(NetHandler):
             async def handle(self, data: bytes, addr: tuple[str, int]) -> None:
@@ -18,17 +17,17 @@ class TestSecureNet:
         
         handler = DummyHandler()
         flag = uuid4()
-        assert await runner.secureUserNet.registerHandler(flag, handler)
+        assert runner.secureUserNet.registerHandler(flag, handler)
 
 class TestSecureNetCommunication:
     @pytest.mark.asyncio
     async def testSecureNetHello(self):
-        runner = await P4PRunner.create()
+        runner = P4PRunner()
         secureNet = runner.secureNet
         await runner.begin()
         await asyncio.sleep(0.1)
 
-        runner2 = await P4PRunner.create()
+        runner2 = P4PRunner()
         secureNet2 = runner2.secureNet
         await runner2.begin()
         await asyncio.sleep(0.1)
@@ -41,11 +40,11 @@ class TestSecureNetCommunication:
             )
         ) == runner2.secureNet.HelloResult.SUCCESS
         await asyncio.sleep(0.1)
-        assert await secureNet.getAddrs()
-        assert await secureNet2.getAddrs()
+        assert secureNet.confirmedAddrsToEd25519PublicKeys
+        assert secureNet2.confirmedAddrsToEd25519PublicKeys
     @pytest.mark.asyncio
     async def testSecureUserNetCommunication(self):
-        runner = await P4PRunner.create()
+        runner = P4PRunner()
         class TestNetHandler(NetHandler):
             def __init__(self):
                 self.receivedData = []
@@ -55,26 +54,29 @@ class TestSecureNetCommunication:
                 self.receivedData.append(data)
                 self.receivedAddr.append(addr)
         handler = TestNetHandler()
-        handlerFlag = uuid4()
-        assert await runner.secureUserNet.registerHandler(handlerFlag.bytes, handler)
+        assert runner.secureNet.registerHandler(handler)
         await runner.begin()
-        await asyncio.sleep(0.1)
 
-        runner2 = await P4PRunner.create()
+        runner2 = P4PRunner()
         secureNet2 = runner2.secureNet
         await runner2.begin()
-        await asyncio.sleep(0.1)
 
         netNI = NodeIdentify(
             ip="127.0.0.1",
             port=runner.net._protocolV4.transport.get_extra_info("sockname")[1],
             hashableEd25519PublicKey=runner.ed25519Signer.publicKey
         )
-        await secureNet2.hello(netNI)
+        assert await secureNet2.hello(netNI) == secureNet2.HelloResult.SUCCESS
+
         await asyncio.sleep(0.1)
+
+        assert runner.secureNet.confirmedAddrsToEd25519PublicKeys
+        assert secureNet2.confirmedAddrsToEd25519PublicKeys
         
         data = b"Hello, SecureNet!"
-        assert await secureNet2.sendToSecure(handlerFlag.bytes+data, netNI)
+        assert secureNet2.sendToSecure(data, netNI) == secureNet2.SendToSecureResult.SUCCESS
+
         await asyncio.sleep(0.1)
+
         assert handler.receivedData
         assert handler.receivedAddr

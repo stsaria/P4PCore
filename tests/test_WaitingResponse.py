@@ -44,7 +44,6 @@ class TestWaitingResponse:
         waiting = WaitingResponse[str, str](info)
         
         async def set_response():
-            await asyncio.sleep(0.01)
             waiting.setResponse(Response("result"))
         
         task = asyncio.create_task(set_response())
@@ -57,7 +56,7 @@ class TestWaitingResponse:
         info = WaitingResponseInfo(("127.0.0.1", 8080))
         waiting = WaitingResponse[str, str](info)
         
-        result = await waiting.waitAndGet(timeoutSec=0.01)
+        result = await waiting.waitAndGet(timeoutSeconds=0.01)
         assert result is None
 
     @pytest.mark.asyncio

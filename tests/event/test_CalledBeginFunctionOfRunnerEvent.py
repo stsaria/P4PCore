@@ -7,7 +7,7 @@ from P4PCore.event.CalledBeginFunctionOfRunnerEvent import CalledBeginFunctionOf
 class TestCalledBeginFunctionOfRunnerEvent:
     @pytest.mark.asyncio
     async def testCalledBeginFunctionOfRunnerEvent(self):
-        runner = await P4PRunner.create()
+        runner = P4PRunner()
 
         l = []
 
@@ -16,7 +16,7 @@ class TestCalledBeginFunctionOfRunnerEvent:
             async def onBegin(self, _:CalledBeginFunctionOfRunnerEvent) -> None:
                 l.append(1)
 
-        await runner.eventsManager.registerListener(OnBeginListener())
+        runner.eventsManager.registerListener(OnBeginListener())
         
         await runner.begin()
         assert l == [1]

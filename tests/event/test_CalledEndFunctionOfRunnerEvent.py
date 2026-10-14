@@ -7,7 +7,7 @@ from P4PCore.event.CalledEndFunctionOfRunnerEvent import CalledEndFunctionOfRunn
 class TestCalledEndFunctionOfRunnerEvent:
     @pytest.mark.asyncio
     async def testCalledEndFunctionOfRunnerEvent(self):
-        runner = await P4PRunner.create()
+        runner = P4PRunner()
 
         l = []
 
@@ -16,7 +16,7 @@ class TestCalledEndFunctionOfRunnerEvent:
             async def onEnd(self, _:CalledEndFunctionOfRunnerEvent) -> None:
                 l.append(1)
 
-        await runner.eventsManager.registerListener(OnEndListener())
+        runner.eventsManager.registerListener(OnEndListener())
         
         await runner.begin()
         await runner.end()

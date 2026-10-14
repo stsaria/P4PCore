@@ -1,6 +1,7 @@
 import asyncio
-from typing import Hashable
+from collections.abc import Hashable
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 class HashableEd25519PublicKey(Hashable):
@@ -24,7 +25,7 @@ class HashableEd25519PublicKey(Hashable):
         try:
             self._publicKey.verify(signed, data)
             return True
-        except Exception:
+        except InvalidSignature:
             return False
     
     async def verify(self, signed:bytes, data:bytes) -> bool:

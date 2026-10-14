@@ -7,8 +7,7 @@ from P4PCore.abstract.NetHandler import NetHandler
 from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.event.NetOccurredUnhandledExceptionEvent import NetOccurredUnhandledExceptionEvent
 from P4PCore.manager.Events import Events
-from P4PCore.manager.SimpleImpls import SimpleSetManager
-from P4PCore.protocol.Protocol import SOCKET_BUFFER, PacketElementSize
+from P4PCore.protocol.Protocol import SOCKET_BUFFER
 
 class _NetServerProtocol(DatagramProtocol):
     def __init__(self, net:Net, magic:bytes):
@@ -20,7 +19,7 @@ class _NetServerProtocol(DatagramProtocol):
     async def _arecved(self, data:bytes, addr:tuple[str, int], recvedTime:float) -> None:
         async with self._net._sem:
             try:
-                for handler in await self._net._handlers.getAll():
+                for handler in self._net._handlers:
                     await handler.handle(data, addr)
             except Exception as e:
                 await self._net._events.triggerEvent(NetOccurredUnhandledExceptionEvent(e, data, addr, recvedTime))
@@ -45,7 +44,7 @@ class Net(NetHandlerRegistry, HasLoop):
         self._events:Events = events
         self._magic:bytes = magic
 
-        self._handlers:SimpleSetManager[NetHandler] = SimpleSetManager()
+        self._handlers:set[NetHandler] = set()
 
         self._protocolV4:_NetServerProtocol = None
         self._protocolV6:_NetServerProtocol = None
@@ -78,13 +77,16 @@ class Net(NetHandlerRegistry, HasLoop):
     @semaphoreLimits.setter
     def semaphoreLimits(self, semaphoreLimits:int) -> int:
         self._semaphoreLimits = semaphoreLimits
-    async def registerHandler(self, handler:NetHandler) -> bool:
+    def registerHandler(self, handler:NetHandler) -> bool:
         """
         Register a network handler to receive incoming packets.
         :param handler: The handler instance to register.
         :return: True if the handler was added successfully; otherwise False.
         """
-        return await self._handlers.add(handler)
+        if handler in self._handlers:
+            return False
+        self._handlers.add(handler)
+        return True
     def sendTo(self, data:bytes, addr:tuple[str, int]) -> bool:
         """
         Send bytes to the specified address.

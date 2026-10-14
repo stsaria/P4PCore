@@ -2,18 +2,17 @@ from __future__ import annotations
 import asyncio
 import random
 from asyncio import Task
-from typing import Callable, Type, Awaitable
+from collections.abc import Callable, Awaitable
 from uuid import UUID
 
 from P4PCore.P4PRunner import P4PRunner
 from P4PCore.abstract.NetHandler import NetHandler
-from P4PCore.event.GossipDeletedByGcEvent import GossipDeletedByGcEvent
 from P4PCore.event.GossipRecvedEvent import GossipRecvedEvent
-from P4PCore.protocol.Protocol import ENDIAN, PacketElementSize, PacketFlag
-from P4PCore.manager.SimpleImpls import SimpleCannotOverwriteKVManager
+from P4PCore.protocol.Protocol import PacketElementSize, PacketFlag
 from P4PCore.util.BytesCoverter import *
 from P4PCore.util import BytesSplitter
 from P4PCore.abstract.HasLoop import HasLoop
+from P4PCore.manager.MinCountTTLCache import MinCountTTLCache
 
 
 class Gossiper(NetHandler, HasLoop):
@@ -21,41 +20,21 @@ class Gossiper(NetHandler, HasLoop):
     Coordinate gossip propagation and garbage collection across peers in the P4P network.
     You can't send messages securely by this class.
     """
-    _runner:P4PRunner
-    _uuidFlag:UUID
-    _gossipLength:int
-    _maximumGossipCountPerMessage:int
-    _getAddrsFunc:Callable[[], Awaitable[set[tuple[str, int]]]]
-    _gossipRecvedEventClass:Type[GossipRecvedEvent]
-    _gossipDeletedByGcEventClass:Type[GossipDeletedByGcEvent]
-
-    _gossipBytesToFoundTimesAndAddrs:SimpleCannotOverwriteKVManager[bytes, tuple[float, tuple[str, int] | None]]
-    _syncerTask:Task | None
-
-    _gossipTTLSeconds:float
-    _syncNodeCountPerOneTime:int
-    _syncIntervalSeconds:float
-    _maximumSavedDataCount:int
-    _requiredGossip:bytes
-    _minimumSavedDataCount:int
-
-    @classmethod
-    async def create(
-        cls,
+    def __init__(
+        self,
         runner:P4PRunner,
         uuidFlag:UUID,
         gossipLength:int,
         maximumGossipCountPerMessage:int,
         getAddrsFunc:Callable[[], Awaitable[set[tuple[str, int]]]],
-        gossipRecvedEventClass:Type[GossipRecvedEvent],
-        gossipDeletedByGcEventClass:Type[GossipDeletedByGcEvent],
+        gossipRecvedEventClass:type[GossipRecvedEvent],
         gossipTTLSeconds:float=7.0,
         syncNodeCountPerOneTime:int=6,
         syncIntervalSeconds:float=5.0,
         maximumSavedDataCount:int=100,
         requiredGossip:bytes=b"",
         minimumSavedDataCount:int=20
-    ) -> "Gossiper":
+    ):
         """
         Create a new instance of the Gossiper class
         :param runner: The P4PRunner instance to use for networking and event management.
@@ -73,17 +52,6 @@ class Gossiper(NetHandler, HasLoop):
         :param minimumSavedDataCount: The minimum number of gossip messages to save. If saved data size is less than this, no messages will be deleted (>= 0).
         :return: An instance of the Gossiper class.
         """
-        inst = cls()
-        inst._runner = runner
-        inst._uuidFlag = uuidFlag
-        inst._gossipLength = gossipLength
-        inst._maximumGossipCountPerMessage = maximumGossipCountPerMessage
-        inst._getAddrsFunc = getAddrsFunc
-        inst._gossipRecvedEventClass = gossipRecvedEventClass
-        inst._gossipDeletedByGcEventClass = gossipDeletedByGcEventClass
-
-        inst._gossipBytesToFoundTimesAndAddrs = SimpleCannotOverwriteKVManager()
-        inst._syncerTask = None
 
         if gossipTTLSeconds <= 0:
             raise ValueError("gossipTTLSeconds > 0")
@@ -97,32 +65,42 @@ class Gossiper(NetHandler, HasLoop):
             raise ValueError("len(requiredGossip) % gossipLength == 0")
         elif minimumSavedDataCount < 0:
             raise ValueError("minimumSavedDataCount >= 0")
-        inst._gossipTTLSeconds = gossipTTLSeconds
-        inst._syncNodeCountPerOneTime = syncNodeCountPerOneTime
-        inst._syncIntervalSeconds = syncIntervalSeconds
-        inst._maximumSavedDataCount = maximumSavedDataCount
-        inst._requiredGossip = requiredGossip
-        inst._minimumSavedDataCount = minimumSavedDataCount
 
-        await inst._runner.userNet.registerHandler(inst._uuidFlag.bytes, inst)
+        self._runner:P4PRunner = runner
+        self._uuidFlag:UUID = uuidFlag
+        self._gossipLength:int = gossipLength
+        self._maximumGossipCountPerMessage:int = maximumGossipCountPerMessage
+        self._getAddrsFunc:Callable[[], Awaitable[set[tuple[str, int]]]] = getAddrsFunc
+        self._gossipRecvedEventClass:type[GossipRecvedEvent] = gossipRecvedEventClass
 
-        return inst
+        self._gossipBytesToFoundTimesAndAddrs:MinCountTTLCache[bytes, tuple[float, tuple[str, int] | None]] = MinCountTTLCache(maximumSavedDataCount, gossipTTLSeconds, minimumSavedDataCount)
 
-    def _addGossipForAtomic(self, d:dict[bytes, float], gossipB:bytes, addr:tuple[str, int] | None) -> bool:
-        now = asyncio.get_running_loop().time()
-        if not gossipB in d and len(d) < int(self._maximumSavedDataCount):
-            d[gossipB] = (now, addr)
-            return True
-        return False
+        self._syncerTask:Task | None = None
+        
+        self._syncNodeCountPerOneTime:int = syncNodeCountPerOneTime
+        self._syncIntervalSeconds:float = syncIntervalSeconds
+        self._requiredGossip:bytes = requiredGossip
+        self._minimumSavedDataCount:int = minimumSavedDataCount
+        self._maximumSavedDataCount:int = maximumSavedDataCount
 
-    async def addGossip(self, gossipB:bytes, addr:tuple[str, int] | None = None) -> bool:
+        self._runner.userNet.registerHandler(self._uuidFlag.bytes, self)
+
+    def addGossip(self, gossipB:bytes, addr:tuple[str, int] | None = None) -> bool:
         """
         Add a gossip payload to the local store.
         :param gossipB: The gossip payload to add.
         :param addr: The sender address associated with the gossip payload, if known.
         :return: True if the payload was added successfully; otherwise False.
         """
-        return await self._gossipBytesToFoundTimesAndAddrs.atomic(self._addGossipForAtomic, gossipB, addr)
+        now = asyncio.get_running_loop().time()
+        if (
+            not gossipB in self._gossipBytesToFoundTimesAndAddrs
+            and
+            len(self._gossipBytesToFoundTimesAndAddrs) < int(self._maximumSavedDataCount)
+        ):
+            self._gossipBytesToFoundTimesAndAddrs[gossipB] = (now, addr)
+            return True
+        return False
 
     async def deleteGossip(self, gossipB:bytes) -> bool:
         """
@@ -130,14 +108,14 @@ class Gossiper(NetHandler, HasLoop):
         :param gossipB: The gossip payload to remove.
         :return: True if the payload was removed; otherwise False.
         """
-        return bool(await self._gossipBytesToFoundTimesAndAddrs.delete(gossipB))
+        return not not self._gossipBytesToFoundTimesAndAddrs.pop(gossipB, False)
 
     async def getAllGossipData(self) -> list[bytes]:
         """
         Return all currently stored gossip payloads.
         :return: A list of all gossip payloads currently tracked by the gossiper.
         """
-        return list(await self._gossipBytesToFoundTimesAndAddrs.getAll())
+        return list(self._gossipBytesToFoundTimesAndAddrs)
 
     async def handle(self, data:bytes, addr:tuple[str, int]) -> None:
         addedCount = 0
@@ -147,18 +125,6 @@ class Gossiper(NetHandler, HasLoop):
             await self._runner.eventsManager.triggerEvent(
                 self._gossipRecvedEventClass(gossipB, addr)
             )
-
-    async def _gc(self) -> None:
-        now = asyncio.get_running_loop().time()
-        gossips = (await self._gossipBytesToFoundTimesAndAddrs.getAll()).items()
-        if len(gossips) <= self._minimumSavedDataCount:
-            return
-        for gossipB, (addedTime, _) in gossips:
-            if (now - addedTime) > self._gossipTTLSeconds:
-                await self._gossipBytesToFoundTimesAndAddrs.delete(gossipB)
-                await self._runner.eventsManager.triggerEvent(
-                    self._gossipDeletedByGcEventClass(gossipB)
-                )
 
     def _gossip(self, addr:tuple[str, int], payload:bytes) -> None:
         self._runner.net.sendTo(
@@ -172,9 +138,8 @@ class Gossiper(NetHandler, HasLoop):
         """
         Synchronize gossip messages with a random selection of nodes.
         """
-        await self._gc()
 
-        gossips = list((await self._gossipBytesToFoundTimesAndAddrs.getAll()).items())
+        gossips = list(self._gossipBytesToFoundTimesAndAddrs.items())
         if not gossips:
             return
 

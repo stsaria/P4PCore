@@ -11,8 +11,7 @@ from P4PCore.util.BytesCoverter import itob
 MAGIC = b"P4P5"
 
 class TestNet:
-    @pytest.mark.asyncio
-    async def testNetCreate(self):
+    def testNetCreate(self):
         net = Net(Events(), MAGIC)
         assert net.isRunning() is False
 
@@ -60,7 +59,7 @@ class TestNetHandlerCommunication:
             async def handle(self, data: bytes, _: tuple[str, int]) -> None:
                 self.receivedData.append(data)
         handler = TestNetHandler()
-        assert await net.registerHandler(handler)
+        assert net.registerHandler(handler)
 
         await net.begin()
         await asyncio.sleep(0.1)
