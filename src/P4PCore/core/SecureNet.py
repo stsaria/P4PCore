@@ -51,8 +51,9 @@ class SecureNet(NetHandler):
         :param userNet: The user network registry used to register this secure handler.
         :param ed25519Signer: The signer used to authenticate secure connections.
         :param events: The event manager used for secure network event notifications.
-        :param magic: A byte string representing the packet flag. Default is b"P4P5".
-        :return: The initialized SecureNet instance.
+        :param magic: A byte string representing the packet flag.
+        :param helloingsMaxSize: Maximum size of the ongoing hello handshake cache (> 0).
+        :param helloingsTimeoutSeconds: Timeout in seconds for the hello handshake cache TTL (> 0).
         """
 
         self._net:Net = net
@@ -65,6 +66,10 @@ class SecureNet(NetHandler):
         self._events:Events = events
         self._magic:bytes = magic
 
+        if helloingsMaxSize <= 0:
+            raise ValueError("helloingsMaxSize > 0")
+        elif helloingsTimeoutSeconds <= 0:
+            raise ValueError("helloingsTimeoutSeconds > 0")
         self._helloings:TTLCache[tuple[str, int], _HelloStorage | None] = TTLCache(maxsize=helloingsMaxSize, ttl=helloingsTimeoutSeconds)
 
         self._confirmedAddrsToEd25519PublicKeys:dict[tuple[str, int], HashableEd25519PublicKey] = {}

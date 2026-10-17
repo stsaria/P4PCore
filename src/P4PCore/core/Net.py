@@ -35,11 +35,19 @@ class Net(NetHandlerRegistry, HasLoop):
     """
     Manage UDP socket setup, packet dispatch, and network lifecycle for the project.
     """
-    def __init__(self, events:Events, magic:bytes) -> None:
+    def __init__(
+        self,
+        events:Events,
+        magic:bytes,
+        v4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0),
+        v6ListeningAddr:tuple[str, int] | None = None
+    ) -> None:
         """
         Initialize a network instance with its event manager and handler registry.
         :param events: The event manager used to emit network exceptions and other events.
         :param magic: A byte string representing the packet flag.
+        :param v4ListeningAddr: The IPv4 address for listening packets.
+        :param v6ListeningAddr: The IPv6 address for listening packets.
         """
         self._events:Events = events
         self._magic:bytes = magic
@@ -49,27 +57,9 @@ class Net(NetHandlerRegistry, HasLoop):
         self._protocolV4:_NetServerProtocol = None
         self._protocolV6:_NetServerProtocol = None
 
-        self._v4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0)
-        self._v6ListeningAddr:tuple[str, int] | None = None
+        self._v4ListeningAddr:tuple[str, int] | None = v4ListeningAddr
+        self._v6ListeningAddr:tuple[str, int] | None = v6ListeningAddr
         self._semaphoreLimits:int = 100
-    @property
-    def v4ListeningAddr(self) -> tuple[str, int] | None:
-        """
-        The IPv4 listen address used by the network server.
-        """
-        return self._v4ListeningAddr
-    @v4ListeningAddr.setter
-    def v4ListeningAddr(self, addr:tuple[str, int] | None) -> None:
-        self._v4ListeningAddr = addr
-    @property
-    def v6ListeningAddr(self) -> tuple[str, int] | None:
-        """
-        The IPv6 listen address used by the network server.
-        """
-        return self._v6ListeningAddr
-    @v6ListeningAddr.setter
-    def v6ListeningAddr(self, addr:tuple[str, int] | None) -> None:
-        self._v6ListeningAddr = addr
     @property
     def semaphoreLimits(self) -> int:
         """The maximum concurrency allowed for packet handling."""
@@ -119,12 +109,12 @@ class Net(NetHandlerRegistry, HasLoop):
         loop = asyncio.get_running_loop()
         self._sem = Semaphore(self._semaphoreLimits)
 
-        if self.v4ListeningAddr:
+        if self._v4ListeningAddr:
             _, self._protocolV4 = await loop.create_datagram_endpoint(
                 lambda: _NetServerProtocol(self, self._magic),
                 local_addr=self._v4ListeningAddr
             )
-        if self.v6ListeningAddr:
+        if self._v6ListeningAddr:
             _, self._protocolV6 = await loop.create_datagram_endpoint(
                 lambda: _NetServerProtocol(self, self._magic),
                 local_addr=self._v6ListeningAddr
@@ -133,9 +123,10 @@ class Net(NetHandlerRegistry, HasLoop):
     async def end(self) -> None:
         """
         Stop the network server and close both active transports.
-        :return: None.
         """
         if (v4 := self._protocolV4) and (v4T := v4.transport):
             v4T.close()
         if (v6 := self._protocolV6) and (v6T := v6.transport):
             v6T.close()
+        self._semaphoreLimits = 0
+

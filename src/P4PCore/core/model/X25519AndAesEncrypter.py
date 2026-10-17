@@ -162,6 +162,7 @@ class X25519AndAesgcmEncrypter:
     @property
     def otherPartyX25519PublicKeyBytes(self) -> bytes | None:
         """
+        The other party x25519 public key for deriving aes key.
         """
         return self._otherPartyX25519PublicKey.public_bytes_raw()
     @otherPartyX25519PublicKeyBytes.setter

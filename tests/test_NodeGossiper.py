@@ -1,123 +1,138 @@
-import pytest
+import os
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID
+import pytest
 
+from P4PCore.P4PRunner import P4PRunner
 from P4PCore.common.model.NodeIdentify import NodeIdentify
 from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicKey
-from P4PCore.plugin.append.nodeGossiper.event.NodeGossipRecvedEvent import NodeGossipRecvedEvent
-from P4PCore.plugin.append.nodeGossiper.NodeGossiper import NodeGossiper
 
+from P4PCore.plugin.append.nodeGossiper.NodeGossiper import *
+from P4PCore.plugin.append.nodeGossiper.event.NodeGossipRecvedEvent import NodeGossipRecvedEvent
+from P4PCore.plugin.append.nodeGossiper.util.NodeIdentifyConverter import nodeIdentifyToBytes
+
+
+def _makeNode(port: int = 12345, ip: str = "127.0.0.1") -> NodeIdentify:
+    return NodeIdentify(
+        ip=ip,
+        port=port,
+        hashableEd25519PublicKey=HashableEd25519PublicKey(os.urandom(32)),
+    )
 
 class TestNodeGossiper:
-    @pytest.fixture
-    def mockRunner(self):
-        runner = MagicMock()
-        runner.getLogger.return_value = MagicMock()
-        runner.ed25519Signer.publicKey = HashableEd25519PublicKey(b"\x01" * 32)
-        runner.eventsManager = MagicMock()
-        runner.pingPongNet = AsyncMock()
-        return runner
+    @pytest.mark.asyncio
+    async def testCreateStartsEmptyWhenStorageIsEmpty(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+
+        assert nodeGossiper.nodeIdentifies == set()
+        assert nodeGossiper._gossiper.gossips == []
 
     @pytest.mark.asyncio
-    async def testInitialization(self, mockRunner):
-        with pytest.raises(ValueError):
-            NodeGossiper(mockRunner, pingTimeoutSeconds=0)
+    async def testAddNode(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+        await runner.begin()
 
-        with pytest.raises(ValueError):
-            NodeGossiper(mockRunner, aliveTimeSeconds=-1.0)
-
-        with patch("P4PCore.plugin.append.nodeGossiper.NodeGossiper.Gossiper") as mockGossiperClass:
-            gossiper = NodeGossiper(mockRunner)
-            assert gossiper._pingTimeoutSeconds == 1.0
-            mockRunner.eventsManager.registerListener.assert_called_once_with(gossiper)
+        node = _makeNode()
+        assert nodeGossiper.addNode(node)
+        assert node in nodeGossiper.nodeIdentifies
+        assert nodeIdentifyToBytes(node) in nodeGossiper._gossiper.gossips
 
     @pytest.mark.asyncio
-    async def testAddAndDeleteNode(self, mockRunner):
-        with patch("P4PCore.plugin.append.nodeGossiper.NodeGossiper.Gossiper") as mockGossiperClass:
-            gossiperInstance = mockGossiperClass.return_value
-            gossiperInstance.addGossip.return_value = True
+    async def testAddNodeDuplicateReturnsFalse(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+        await runner.begin()
 
-            gossiper = NodeGossiper(mockRunner)
-            nodeIdentify = NodeIdentify(
-                ip="192.168.1.1",
-                port=8080,
-                hashableEd25519PublicKey=HashableEd25519PublicKey(b"\x02" * 32)
-            )
-
-            result = gossiper.addNode(nodeIdentify)
-            assert result is True
-            gossiperInstance.addGossip.assert_called_once()
-
-            gossiper.deleteNode(nodeIdentify)
-            gossiperInstance.deleteGossip.assert_called_once()
+        node = _makeNode()
+        assert nodeGossiper.addNode(node)
+        assert not nodeGossiper.addNode(node)
+        assert len(nodeGossiper.nodeIdentifies) == 1
 
     @pytest.mark.asyncio
-    async def testOnNodeGossipRecvedAlreadyAlive(self, mockRunner):
-        with patch("P4PCore.plugin.append.nodeGossiper.NodeGossiper.Gossiper") as mockGossiperClass:
-            gossiperInstance = mockGossiperClass.return_value
-            gossiperInstance.addGossip.return_value = True
+    async def testAddNodeRollsBackStorageWhenGossiperIsFull(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner, maximumNodesCount=1)
+        await runner.begin()
 
-            gossiper = NodeGossiper(mockRunner)
-            nodeIdentify = NodeIdentify(
-                ip="192.168.1.2",
-                port=8080,
-                hashableEd25519PublicKey=HashableEd25519PublicKey(b"\x03" * 32)
-            )
+        firstNode = _makeNode()
+        secondNode = _makeNode(port=11235)
 
-            gossiper._alivedNodesAndFoundTimes[nodeIdentify.addr] = None
+        assert nodeGossiper.addNode(firstNode)
+        assert not nodeGossiper.addNode(secondNode)
 
-            event = MagicMock(spec=NodeGossipRecvedEvent)
-            event.recvedNode = nodeIdentify
-            event.addr = nodeIdentify.addr
-
-            await gossiper.onNodeGossipRecved(event)
-
-            assert nodeIdentify in gossiper._addNodesQueue
-            gossiperInstance.addGossip.assert_called()
+        nodeIdentifies = nodeGossiper.nodeIdentifies
+        assert firstNode in nodeIdentifies
+        assert secondNode not in nodeIdentifies
 
     @pytest.mark.asyncio
-    async def testCheckAndAddNodeLoopProcessing(self, mockRunner):
-        with patch("P4PCore.plugin.append.nodeGossiper.NodeGossiper.Gossiper") as mockGossiperClass:
-            gossiperInstance = mockGossiperClass.return_value
-            gossiperInstance.addGossip.return_value = True
+    async def testDeleteNode(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+        await runner.begin()
 
-            mockRunner.pingPongNet.ping.return_value = True
+        node = _makeNode()
+        nodeGossiper.addNode(node)
 
-            gossiper = NodeGossiper(mockRunner)
-            nodeIdentify = NodeIdentify(
-                ip="192.168.1.3",
-                port=8080,
-                hashableEd25519PublicKey=HashableEd25519PublicKey(b"\x04" * 32)
-            )
-
-            gossiper._addNodesQueue.add(nodeIdentify)
-
-            task = asyncio.create_task(gossiper._checkAndAddNodeLoop())
-            
-            while nodeIdentify in gossiper._addNodesQueue and not task.done():
-                await asyncio.sleep(0.01)
-
-            gossiper._endEvent.set()
-            gossiper._dataReadyEvent.set()
-            await task
-
-            mockRunner.pingPongNet.ping.assert_awaited_once_with(nodeIdentify.addr, gossiper._pingTimeoutSeconds)
-            assert nodeIdentify.addr in gossiper._alivedNodesAndFoundTimes
+        nodeGossiper.deleteNode(node)
+        assert node not in nodeGossiper.nodeIdentifies
+        assert nodeIdentifyToBytes(node) not in nodeGossiper._gossiper.gossips
 
     @pytest.mark.asyncio
-    async def testLifecycleOnBeginAndOnEnd(self, mockRunner):
-        with patch("P4PCore.plugin.append.nodeGossiper.NodeGossiper.Gossiper") as mockGossiperClass:
-            gossiperInstance = mockGossiperClass.return_value
-            gossiperInstance.begin = AsyncMock()
-            gossiperInstance.end = AsyncMock()
+    async def testOnNodeGossipRecvedAddsValidNodeToStorage(self):
+        runner = P4PRunner()
 
-            gossiper = NodeGossiper(mockRunner)
+        runner2 = P4PRunner()
+        nodeGossiper2 = NodeGossiper(runner2)
+        await runner.begin()
+        await runner2.begin()
+        await nodeGossiper2.begin()
 
-            await gossiper.onBegin()
-            gossiperInstance.begin.assert_awaited_once()
-            assert gossiper._checkAndAddNodeLoopTask is not None
+        addr = runner._net._protocolV4.transport.get_extra_info("sockname")
+        node = NodeIdentify(ip=addr[0], port=addr[1], hashableEd25519PublicKey=runner.ed25519Signer.publicKey)
+        event = NodeGossipRecvedEvent(nodeIdentifyToBytes(node), node.addr)
+        await nodeGossiper2.onNodeGossipRecved(event)
 
-            await gossiper.onEnd()
-            gossiperInstance.end.assert_awaited_once()
-            assert gossiper._endEvent.is_set()
+        await asyncio.sleep(0.1)
+
+        assert node in nodeGossiper2.nodeIdentifies
+
+    @pytest.mark.asyncio
+    async def testOnNodeGossipRecvedIgnoresInvalidData(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+        await runner.begin()
+
+        garbage = os.urandom(GOSSIP_SIZE)
+        event = NodeGossipRecvedEvent(garbage, ("127.0.0.1", 9999))
+        await nodeGossiper.onNodeGossipRecved(event)
+
+        assert nodeGossiper.nodeIdentifies == set()
+
+        await runner.end()
+
+    @pytest.mark.asyncio
+    async def testEndToEndGossipPropagatesNodeBetweenPeers(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+        await runner.begin()
+        await nodeGossiper.begin()
+        
+        runner2 = P4PRunner()
+        nodeGossiper2 = NodeGossiper(runner2)
+        await runner2.begin()
+
+        await asyncio.sleep(0)
+
+        addr = runner2._net._protocolV4.transport.get_extra_info("sockname")
+        node = NodeIdentify(ip = addr[0], port = addr[1], hashableEd25519PublicKey=runner2.ed25519Signer.publicKey)
+        nodeGossiper2.addNode(node)
+
+        nodeGossiper2._gossiper._gossip(
+            runner._net._protocolV4.transport.get_extra_info("sockname"),
+            nodeIdentifyToBytes(node)
+        )
+
+        await asyncio.sleep(0.1)
+
+        assert node in nodeGossiper.nodeIdentifies

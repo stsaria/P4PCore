@@ -42,8 +42,7 @@ class NodeGossiper:
         minimumNodesCount:int=20,
         pingTimeoutSeconds:float=1.0,
         aliveTimeSeconds:float=30.0,
-        alivedStorageNodesCount:int=1000,
-        loop:AbstractEventLoop | None = None
+        aliveStorageNodesCount:int=1000
     ) -> "NodeGossiper":
         """
         Create a new NodeGossiper instance.
@@ -60,12 +59,15 @@ class NodeGossiper:
         :param minimumNodesCount: The minimum number of nodes to store (>= 0).
         :param pingTimeoutSeconds: The timeout for pinging nodes in seconds (> 0).
         :param aliveTimeSeconds: The time a node is considered alive in seconds (> 0).
+        :param aliveStorageNodesCount: The maximum number of alive nodes to store (> 0).
         :return: An initialized NodeGossiper instance.
         """
         if pingTimeoutSeconds <= 0:
             raise ValueError("pingTimeoutSeconds > 0")
         elif aliveTimeSeconds <= 0:
             raise ValueError("aliveTimeSeconds > 0")
+        elif aliveStorageNodesCount <= 0:
+            raise ValueError("aliveStorageNodesCount > 0")
 
         self._runner:P4PRunner = runner
 
@@ -91,7 +93,7 @@ class NodeGossiper:
         )
         self._logger = self._runner.getLogger("NodeGossiper")
         self._alivedNodesAndFoundTimes:TTLCache[tuple[str, int], None] = TTLCache(
-            alivedStorageNodesCount,
+            aliveStorageNodesCount,
             aliveTimeSeconds
         )
         self._pingTimeoutSeconds:int = pingTimeoutSeconds
@@ -135,9 +137,9 @@ class NodeGossiper:
     @property
     def nodeIdentifies(self) -> set[NodeIdentify]:
         """
-        all NodeIdentify objects currently stored by the gossiper.
+        All NodeIdentify objects currently stored by the gossiper.
         """
-        return self._nodeIdentifies.copy()
+        return {bytesToNodeIdentify(n) for n in self._gossiper.gossips}
 
     def getAddrs(self) -> set[NodeIdentify]:
         """
@@ -145,7 +147,7 @@ class NodeGossiper:
 
         :return: A collection of node addresses.
         """
-        return {bytesToNodeIdentify(n).addr for n in self._gossiper.gossips}
+        return {n.addr for n in self.nodeIdentifies}
 
     @EventListener
     async def onNodeGossipRecved(
@@ -198,12 +200,18 @@ class NodeGossiper:
             self._alivedNodesAndFoundTimes[addr] = None
             self.addNode(nodeIdentify)
 
-    async def onBegin(self) -> None:
+    async def begin(self) -> None:
+        """
+        Start the gossiper sync task and background node checking loop.
+        """
         self._logger.info("NodeGossiper sync task starting.")
         self._checkAndAddNodeLoopTask = asyncio.create_task(self._checkAndAddNodeLoop())
         await self._gossiper.begin()
     
-    async def onEnd(self) -> None:
+    async def end(self) -> None:
+        """
+        Stop the gossiper sync task, signal events to unblock background loops, and wait for task completion.
+        """
         self._logger.info("NodeGossiper sync task stopping.")
         await self._gossiper.end()
         if not self._checkAndAddNodeLoopTask:

@@ -7,6 +7,9 @@ K = TypeVar("K")
 V = TypeVar("V")
 
 class MinCountTTLCache[K, V](MutableMapping):
+    """
+    A TTL cache with capacity limits and a protected minimum size.
+    """
     def __init__(self, maxsize:int, ttl:float, minSize:int):
         self._maxSize = maxsize
         self._ttl = ttl

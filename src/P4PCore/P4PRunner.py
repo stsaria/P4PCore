@@ -25,6 +25,8 @@ class P4PRunner(HasLoop):
         ed25519Signer:Ed25519Signer | None = None,
         loggerHandlers:list[Handler] = [],
         magic:bytes=b"P4P6",
+        netV4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0),
+        netV6ListeningAddr:tuple[str, int] | None = None,
         secureNetHelloingsMaxSize: int = 100,
         secureNetHelloingsTimeoutSeconds: float = 4
     ) -> "P4PRunner":
@@ -32,6 +34,10 @@ class P4PRunner(HasLoop):
         Create a new instance of P4PRunner.
         :param ed25519Signer: An optional Ed25519Signer instance. If not provided, a new instance will be created.
         :param magic: A byte string representing the packet flag. Default is b"P4P6".
+        :param netV4ListeningAddr: The IPv4 address for listening packets at Net.
+        :param netV6ListeningAddr: The IPv6 address for listening packets at Net.
+        :param secureNetHelloingsMaxSize: Maximum size of the ongoing hello handshake cache at SecureNet (> 0).
+        :param secureNetHelloingsTimeoutSeconds: Timeout in seconds for the hello handshake cache TTL at SecureNet (> 0).
         :return: An instance of P4PRunner.
         """
 
@@ -41,7 +47,12 @@ class P4PRunner(HasLoop):
         self._events:Events = Events()
         self._loggerHandlers:list[Handler] = loggerHandlers
 
-        self._net:Net = Net(self._events, self._magic)
+        self._net:Net = Net(
+            self._events,
+            self._magic,
+            v4ListeningAddr=netV4ListeningAddr,
+            v6ListeningAddr=netV6ListeningAddr
+        )
         self._baseUserNet:UserNet = UserNet(PacketElementSize.PACKET_FLAG, registry=self._net)
         self._secureNet:SecureNet = SecureNet(
             self._net,

@@ -28,17 +28,13 @@ class TestNet:
 
     @pytest.mark.asyncio
     async def testNetSendToWithoutStart(self):
-        net = Net(Events(), MAGIC)
-        net.v4ListeningAddr = ("127.0.0.1", 0)
-        net.v6ListeningAddr = ("::1", 0)
+        net = Net(Events(), MAGIC, ("127.0.0.1", 0), ("::1", 0))
         
         assert not (net.sendTo(b"test", ("127.0.0.1", 8080)) and net.sendTo(b"test", ("::1", 8080)))
 
     @pytest.mark.asyncio
     async def testNetSendToAfterStart(self):
-        net = Net(Events(), MAGIC)
-        net.v4ListeningAddr = ("127.0.0.1", 0)
-        net.v6ListeningAddr = ("::1", 0)
+        net = Net(Events(), MAGIC, ("127.0.0.1", 0), ("::1", 0))
         
         await net.begin()
         
