@@ -1,9 +1,9 @@
 from uuid import uuid4
 
 from P4PCore.P4PRunner import P4PRunner
-from P4PCore.abstract.NetHandler import NetHandler
+from P4PCore.core.abstract.NetHandler import NetHandler
 
-from P4PCore.model.NodeIdentify import NodeIdentify
+from P4PCore.common.model.NodeIdentify import NodeIdentify
 import pytest
 import asyncio
 

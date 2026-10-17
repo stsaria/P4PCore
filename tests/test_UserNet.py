@@ -1,7 +1,7 @@
 import os
 import pytest
 
-from P4PCore.abstract.NetHandler import NetHandler
+from P4PCore.core.abstract.NetHandler import NetHandler
 from P4PCore.core.UserNet import UserNet
 
 FLAG_SIZE = 16

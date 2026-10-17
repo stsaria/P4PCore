@@ -1,8 +1,8 @@
 import pytest
 import asyncio
-from P4PCore.model.WaitingResponse import WaitingResponse
-from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
-from P4PCore.model.Response import Response
+from P4PCore.common.model.WaitingResponse import WaitingResponse
+from P4PCore.common.model.WaitingResponseInfo import WaitingResponseInfo
+from P4PCore.common.model.Response import Response
 
 
 class TestWaitingResponse:

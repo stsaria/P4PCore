@@ -1,4 +1,4 @@
-from P4PCore.model.Response import Response
+from P4PCore.common.model.Response import Response
 
 
 class TestResponse:

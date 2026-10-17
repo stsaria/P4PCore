@@ -5,24 +5,24 @@ from enum import auto as a
 from collections.abc import Callable
 from cachetools import TTLCache
 
-from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
+from P4PCore.core.abstract.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.core.UserNet import UserNet
-from P4PCore.event.SecureNetFinishedToHelloOnRecverEvent import SecureNetFinishedToHelloOnRecverEvent, SecureNetFinishedToHelloOnRecverEventResult
-from P4PCore.event.SecureNetStartedToHelloOnRecver import SecureNetStartedToHelloOnRecver
-from P4PCore.manager.Events import Events
-from P4PCore.model.Ed25519Signer import Ed25519Signer
-from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
-from P4PCore.abstract.NetHandler import NetHandler
-from P4PCore.model.Response import Response
-from P4PCore.model.NodeIdentify import NodeIdentify
-from P4PCore.manager.WaitingResponses import WaitingResponses
-from P4PCore.model.WaitingResponse import WaitingResponse
-from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
+from P4PCore.core.event.SecureNetFinishedToHelloOnRecverEvent import SecureNetFinishedToHelloOnRecverEvent, SecureNetFinishedToHelloOnRecverEventResult
+from P4PCore.core.event.SecureNetStartedToHelloOnRecver import SecureNetStartedToHelloOnRecver
+from P4PCore.common.manager.Events import Events
+from P4PCore.common.model.Ed25519Signer import Ed25519Signer
+from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from P4PCore.core.abstract.NetHandler import NetHandler
+from P4PCore.common.model.Response import Response
+from P4PCore.common.model.NodeIdentify import NodeIdentify
+from P4PCore.common.manager.WaitingResponses import WaitingResponses
+from P4PCore.common.model.WaitingResponse import WaitingResponse
+from P4PCore.common.model.WaitingResponseInfo import WaitingResponseInfo
 from P4PCore.core.Net import Net
-from P4PCore.util.BytesCoverter import *
-from P4PCore.protocol.Protocol import *
-from P4PCore.model.X25519AndAesEncrypter import X25519AndAesgcmEncrypter
-from P4PCore.util import BytesSplitter
+from P4PCore.common.util.BytesCoverter import *
+from P4PCore.core.protocol.Protocol import *
+from P4PCore.core.model.X25519AndAesEncrypter import X25519AndAesgcmEncrypter
+from P4PCore.common.util import BytesSplitter
 
 @dataclass
 class _HelloStorage:
@@ -30,7 +30,7 @@ class _HelloStorage:
     myChallengeToken:bytes | None = None
     encrypter:X25519AndAesgcmEncrypter | None = None
 
-class SecureNet(NetHandler, NetHandlerRegistry):
+class SecureNet(NetHandler):
     """
     Provide secure peer-to-peer communication with Ed25519/X25519-based and AES handshakes and encryption.
     """

@@ -1,6 +1,6 @@
 import pytest
 
-from P4PCore.model.X25519AndAesEncrypter import EncrypterOverflowException, X25519AndAesgcmEncrypter
+from P4PCore.core.model.X25519AndAesEncrypter import EncrypterOverflowException, X25519AndAesgcmEncrypter
 
 class TestX25519AndAesgcmEncrypter:
     def testDerive(self):

@@ -1,8 +1,8 @@
 import pytest
 
-from P4PCore.manager.WaitingResponses import WaitingResponses
-from P4PCore.model.WaitingResponse import WaitingResponse
-from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
+from P4PCore.common.manager.WaitingResponses import WaitingResponses
+from P4PCore.common.model.WaitingResponse import WaitingResponse
+from P4PCore.common.model.WaitingResponseInfo import WaitingResponseInfo
 
 class TestWaitingResponses:
     @pytest.mark.asyncio

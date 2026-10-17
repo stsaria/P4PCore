@@ -2,20 +2,16 @@ import logging
 from asyncio import Lock
 from logging import Handler, Logger
 
-from P4PCore.abstract.HasLoop import HasLoop
+from P4PCore.common.abstract.HasLoop import HasLoop
 from P4PCore.core.Net import Net
 from P4PCore.core.PingPongNet import PingPongNet
 from P4PCore.core.SecureNet import SecureNet
 from P4PCore.core.UserNet import UserNet
-from P4PCore.event.CalledBeginFunctionOfRunnerEvent import (
-    CalledBeginFunctionOfRunnerEvent,
-)
-from P4PCore.event.CalledEndFunctionOfRunnerEvent import CalledEndFunctionOfRunnerEvent
-from P4PCore.manager.Events import Events
-from P4PCore.model.Ed25519Signer import Ed25519Signer
-from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
-from P4PCore.protocol.Protocol import PacketElementSize, PacketFlag
-from P4PCore.util.BytesCoverter import itob
+from P4PCore.common.manager.Events import Events
+from P4PCore.common.model.Ed25519Signer import Ed25519Signer
+from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from P4PCore.core.protocol.Protocol import PacketElementSize, PacketFlag
+from P4PCore.common.util.BytesCoverter import itob
 
 
 class P4PRunner(HasLoop):
@@ -23,7 +19,6 @@ class P4PRunner(HasLoop):
     The Runner class is the main class of P4P. It manages the network, events, and other core functionalities.
 
     Basically, you most start you program with P4PRunner.begin() and end it with P4PRunner.end() (for saving resources and preventing errors).
-    So, if you want to set the timing of starting and ending, you should handle the event CalledBeginFunctionOfRunnerEvent and CalledEndFunctionOfRunnerEvent.
     """
     def __init__(
         self,
@@ -127,11 +122,9 @@ class P4PRunner(HasLoop):
         In most cases, this function should be called at first.
         """
         await self._net.begin()
-        await self._events.triggerEvent(CalledBeginFunctionOfRunnerEvent())
     async def end(self) -> None:
         """
         End the instance's all.
         In most cases, this function should be called at last.
         """
         await self._net.end()
-        await self._events.triggerEvent(CalledEndFunctionOfRunnerEvent())

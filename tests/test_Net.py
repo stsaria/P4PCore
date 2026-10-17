@@ -2,11 +2,11 @@ import pytest
 import asyncio
 
 from P4PCore.P4PRunner import P4PRunner
-from P4PCore.abstract.NetHandler import NetHandler
+from P4PCore.core.abstract.NetHandler import NetHandler
 from P4PCore.core.Net import Net
-from P4PCore.manager.Events import Events
-from P4PCore.protocol.Protocol import PacketElementSize, PacketFlag
-from P4PCore.util.BytesCoverter import itob
+from P4PCore.common.manager.Events import Events
+from P4PCore.core.protocol.Protocol import PacketElementSize, PacketFlag
+from P4PCore.common.util.BytesCoverter import itob
 
 MAGIC = b"P4P5"
 

@@ -1,4 +1,4 @@
-from P4PCore.util.BytesCoverter import itob, btoi, stob, btos
+from P4PCore.common.util.BytesCoverter import itob, btoi, stob, btos
 from enum import IntEnum
 
 

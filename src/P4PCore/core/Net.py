@@ -2,12 +2,12 @@ from __future__ import annotations
 import asyncio
 from asyncio import DatagramTransport, DatagramProtocol, Semaphore
 
-from P4PCore.abstract.HasLoop import HasLoop
-from P4PCore.abstract.NetHandler import NetHandler
-from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
-from P4PCore.event.NetOccurredUnhandledExceptionEvent import NetOccurredUnhandledExceptionEvent
-from P4PCore.manager.Events import Events
-from P4PCore.protocol.Protocol import SOCKET_BUFFER
+from P4PCore.common.abstract.HasLoop import HasLoop
+from P4PCore.core.abstract.NetHandler import NetHandler
+from P4PCore.core.abstract.NetHandlerRegistry import NetHandlerRegistry
+from P4PCore.core.event.NetOccurredUnhandledExceptionEvent import NetOccurredUnhandledExceptionEvent
+from P4PCore.common.manager.Events import Events
+from P4PCore.core.protocol.Protocol import SOCKET_BUFFER
 
 class _NetServerProtocol(DatagramProtocol):
     def __init__(self, net:Net, magic:bytes):

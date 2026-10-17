@@ -4,9 +4,9 @@ import asyncio
 import os
 
 from P4PCore.P4PRunner import P4PRunner
-from P4PCore.impledPlugin.Gossiper import Gossiper
-from P4PCore.event.GossipRecvedEvent import GossipRecvedEvent
-from P4PCore.manager.Events import EventListener
+from P4PCore.plugin.base.gossiper.Gossiper import Gossiper
+from P4PCore.plugin.base.gossiper.event.GossipRecvedEvent import GossipRecvedEvent
+from P4PCore.common.manager.Events import EventListener
 
 PLUGIN_UUID = uuid4()
 GOSSIP_LENGTH = 10

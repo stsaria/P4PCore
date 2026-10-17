@@ -2,7 +2,7 @@ import pytest
 
 from P4PCore.P4PRunner import P4PRunner
 from P4PCore.core.PingPongNet import PingPongNet
-from P4PCore.manager.Events import Events
+from P4PCore.common.manager.Events import Events
 from P4PCore.core.Net import Net
 
 MAGIC = b"P4P5"

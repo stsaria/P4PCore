@@ -2,14 +2,14 @@ import asyncio
 
 from P4PCore.core.Net import Net
 from P4PCore.core.UserNet import UserNet
-from P4PCore.manager.WaitingResponses import WaitingResponses
-from P4PCore.model.Response import Response
-from P4PCore.model.WaitingResponse import WaitingResponse
-from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
-from P4PCore.protocol.Protocol import *
-from P4PCore.util import BytesSplitter
-from P4PCore.util.BytesCoverter import *
-from P4PCore.abstract.NetHandler import NetHandler
+from P4PCore.common.manager.WaitingResponses import WaitingResponses
+from P4PCore.common.model.Response import Response
+from P4PCore.common.model.WaitingResponse import WaitingResponse
+from P4PCore.common.model.WaitingResponseInfo import WaitingResponseInfo
+from P4PCore.core.protocol.Protocol import *
+from P4PCore.common.util import BytesSplitter
+from P4PCore.common.util.BytesCoverter import *
+from P4PCore.core.abstract.NetHandler import NetHandler
 
 class PingPongNet(NetHandler):
     """

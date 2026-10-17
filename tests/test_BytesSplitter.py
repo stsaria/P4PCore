@@ -1,5 +1,5 @@
 import pytest
-from P4PCore.util.BytesSplitter import split
+from P4PCore.common.util.BytesSplitter import split
 
 class TestSplit:
     def testNormalSplit(self):

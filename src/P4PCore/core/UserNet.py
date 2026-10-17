@@ -1,9 +1,8 @@
-from P4PCore.abstract.NetHandler import NetHandler
-from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
-from P4PCore.interface.NetHandlerFlagRegistry import NetHandlerFlagRegistry
-from P4PCore.util import BytesSplitter
+from P4PCore.core.abstract.NetHandler import NetHandler
+from P4PCore.core.abstract.NetHandlerRegistry import NetHandlerRegistry
+from P4PCore.common.util import BytesSplitter
 
-class UserNet(NetHandler, NetHandlerFlagRegistry):
+class UserNet(NetHandler):
     """
     Route incoming network data to the appropriate registered handler by flag.
     """
