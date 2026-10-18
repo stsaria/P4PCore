@@ -141,7 +141,7 @@ class NodeGossiper:
         """
         return {bytesToNodeIdentify(n) for n in self._gossiper.gossips}
 
-    def getAddrs(self) -> set[NodeIdentify]:
+    async def getAddrs(self) -> set[NodeIdentify]:
         """
         Return the addresses of all nodes currently stored by the gossiper.
 
