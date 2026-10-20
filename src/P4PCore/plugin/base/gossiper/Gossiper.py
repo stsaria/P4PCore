@@ -142,8 +142,8 @@ class Gossiper(NetHandler, HasLoop):
         Synchronize gossip messages with a random selection of nodes.
         """
 
-        gossips = list(self._gossipBytesToFoundTimesAndAddrs.items())
-        if not gossips:
+        gossips = self._gossipBytesToFoundTimesAndAddrs.snapshotItems()
+        if not gossips and not self._requiredGossip:
             return
 
         addrs = list(await self._getAddrsFunc())
@@ -179,6 +179,10 @@ class Gossiper(NetHandler, HasLoop):
         """
         Stop the background gossip synchronization task.
         """
-        if not self._syncerTask:
+        if not self._syncerTask or self._syncerTask.done():
             return
-        self._syncerTask.done()
+        self._syncerTask.cancel()
+        try:
+            await self._syncerTask
+        except asyncio.CancelledError:
+            pass

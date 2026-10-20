@@ -42,7 +42,8 @@ class NodeGossiper:
         minimumNodesCount:int=20,
         pingTimeoutSeconds:float=1.0,
         aliveTimeSeconds:float=30.0,
-        aliveStorageNodesCount:int=1000
+        aliveStorageNodesCount:int=1000,
+        bootstrapNodes:set[tuple[str, int]] | None=None
     ) -> "NodeGossiper":
         """
         Create a new NodeGossiper instance.
@@ -60,6 +61,7 @@ class NodeGossiper:
         :param pingTimeoutSeconds: The timeout for pinging nodes in seconds (> 0).
         :param aliveTimeSeconds: The time a node is considered alive in seconds (> 0).
         :param aliveStorageNodesCount: The maximum number of alive nodes to store (> 0).
+        :param bootstrapNodes: Initial peer addresses to contact for node discovery.
         :return: An initialized NodeGossiper instance.
         """
         if pingTimeoutSeconds <= 0:
@@ -70,6 +72,7 @@ class NodeGossiper:
             raise ValueError("aliveStorageNodesCount > 0")
 
         self._runner:P4PRunner = runner
+        self._bootstrapNodes:set[tuple[str, int]] = set(bootstrapNodes or ())
 
         self._gossiper:Gossiper = Gossiper(
             runner,
@@ -141,13 +144,13 @@ class NodeGossiper:
         """
         return {bytesToNodeIdentify(n) for n in self._gossiper.gossips}
 
-    async def getAddrs(self) -> set[NodeIdentify]:
+    async def getAddrs(self) -> set[tuple[str, int]]:
         """
         Return the addresses of all nodes currently stored by the gossiper.
 
         :return: A collection of node addresses.
         """
-        return {n.addr for n in self.nodeIdentifies}
+        return {n.addr for n in self.nodeIdentifies} | self._bootstrapNodes
 
     @EventListener
     async def onNodeGossipRecved(

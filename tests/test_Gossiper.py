@@ -14,6 +14,27 @@ MAX_GOSSIP_COUNT_PER_MESSAGE = 10
 
 class TestGossiper:
     @pytest.mark.asyncio
+    async def testEndStopsSyncTask(self):
+        runner = P4PRunner()
+        gossiper = Gossiper(
+            runner,
+            PLUGIN_UUID,
+            GOSSIP_LENGTH,
+            MAX_GOSSIP_COUNT_PER_MESSAGE,
+            lambda: None,
+            GossipRecvedEvent,
+        )
+        await runner.begin()
+        await gossiper.begin()
+
+        syncerTask = gossiper._syncerTask
+        assert syncerTask is not None
+        await gossiper.end()
+
+        assert syncerTask.done()
+        await runner.end()
+
+    @pytest.mark.asyncio
     async def testGossip(self):
         runner = P4PRunner()
         gossiper = Gossiper(runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, lambda:None, GossipRecvedEvent)
@@ -149,6 +170,47 @@ class TestGossiper:
 
         await runner.end()
         await gossiper2.end()
+        await runner2.end()
+
+    @pytest.mark.asyncio
+    async def testSyncSendsRequiredGossipWithoutStoredGossips(self):
+        runner = P4PRunner()
+        runner2 = P4PRunner()
+        gossipContent = os.urandom(GOSSIP_LENGTH)
+        recvedGossips = []
+
+        class GossipRecvedHandler:
+            @EventListener
+            async def onGossipRecved(self, event:GossipRecvedEvent):
+                recvedGossips.append(event.gossipContent)
+
+        runner2.eventsManager.registerListener(GossipRecvedHandler())
+        Gossiper(
+            runner2,
+            PLUGIN_UUID,
+            GOSSIP_LENGTH,
+            MAX_GOSSIP_COUNT_PER_MESSAGE,
+            lambda: asyncio.sleep(0, result=set()),
+            GossipRecvedEvent,
+        )
+
+        await runner.begin()
+        await runner2.begin()
+        addr = runner2.net._protocolV4.transport.get_extra_info("sockname")
+        gossiper = Gossiper(
+            runner,
+            PLUGIN_UUID,
+            GOSSIP_LENGTH,
+            MAX_GOSSIP_COUNT_PER_MESSAGE,
+            lambda: asyncio.sleep(0, result={addr}),
+            GossipRecvedEvent,
+            requiredGossip=gossipContent,
+        )
+        await gossiper.sync()
+        await asyncio.sleep(0.1)
+
+        assert recvedGossips == [gossipContent]
+        await runner.end()
         await runner2.end()
 
     @pytest.mark.asyncio

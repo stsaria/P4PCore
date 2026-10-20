@@ -28,6 +28,58 @@ class TestNodeGossiper:
         assert nodeGossiper._gossiper.gossips == []
 
     @pytest.mark.asyncio
+    async def testGetAddrsIncludesBootstrapNodes(self):
+        bootstrapNode = ("127.0.0.1", 12345)
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner, bootstrapNodes={bootstrapNode})
+
+        assert await nodeGossiper.getAddrs() == {bootstrapNode}
+
+    @pytest.mark.asyncio
+    async def testBootstrapNodeDiscoversPeersWithoutPreloadedGossip(self):
+        seedRunner = P4PRunner()
+        seedGossiper = NodeGossiper(seedRunner, syncIntervalSeconds=0.05)
+        joiningRunner = P4PRunner()
+
+        await seedRunner.begin()
+        await seedGossiper.begin()
+        seedAddr = seedRunner.net._protocolV4.transport.get_extra_info("sockname")
+        joiningGossiper = NodeGossiper(
+            joiningRunner,
+            syncIntervalSeconds=0.05,
+            pingTimeoutSeconds=0.5,
+            bootstrapNodes={seedAddr},
+        )
+
+        try:
+            await joiningRunner.begin()
+            await joiningGossiper.begin()
+            deadline = asyncio.get_running_loop().time() + 3
+            while asyncio.get_running_loop().time() < deadline:
+                if (
+                    any(node.addr == seedAddr for node in joiningGossiper.nodeIdentifies)
+                    and any(
+                        node.addr
+                        == joiningRunner.net._protocolV4.transport.get_extra_info("sockname")
+                        for node in seedGossiper.nodeIdentifies
+                    )
+                ):
+                    break
+                await asyncio.sleep(0.05)
+
+            assert any(node.addr == seedAddr for node in joiningGossiper.nodeIdentifies)
+            assert any(
+                node.addr
+                == joiningRunner.net._protocolV4.transport.get_extra_info("sockname")
+                for node in seedGossiper.nodeIdentifies
+            )
+        finally:
+            await joiningGossiper.end()
+            await joiningRunner.end()
+            await seedGossiper.end()
+            await seedRunner.end()
+
+    @pytest.mark.asyncio
     async def testAddNode(self):
         runner = P4PRunner()
         nodeGossiper = NodeGossiper(runner)

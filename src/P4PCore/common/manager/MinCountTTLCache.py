@@ -38,6 +38,13 @@ class MinCountTTLCache[K, V](MutableMapping):
         self._cleanup()
         return iter(self._data)
 
+    def snapshotItems(self) -> list[tuple[K, V]]:
+        self._cleanup()
+        return [
+            (key, value)
+            for key, (value, _) in self._data.items()
+        ]
+
     def __len__(self) -> int:
         self._cleanupWithoutLen()
         return len(self._data)

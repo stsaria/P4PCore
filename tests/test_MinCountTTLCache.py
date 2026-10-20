@@ -79,3 +79,14 @@ class TestMinCountTTLCache:
 
             currentTime = 106.0
             assert len(cache) == 1
+
+    @pytest.mark.asyncio
+    async def testSnapshotItemsCleansExpiredItemsWithoutInvalidatingSnapshot(self):
+        currentTime = 100.0
+        with patch("time.monotonic", side_effect=lambda: currentTime):
+            cache = MinCountTTLCache[str, str](maxsize=5, ttl=5.0, minSize=0)
+            cache["a"] = "apple"
+            cache["b"] = "banana"
+
+            currentTime = 106.0
+            assert cache.snapshotItems() == []
