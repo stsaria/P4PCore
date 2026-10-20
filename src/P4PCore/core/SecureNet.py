@@ -1,90 +1,97 @@
+from dataclasses import dataclass
+from logging import Logger
 import os
-import asyncio
 from enum import auto as a
-from uuid import UUID
+from collections.abc import Callable
+from cachetools import TTLCache
 
-from P4PCore.abstract.NetHandlerRegistry import NetHandlerRegistry
+from P4PCore.core.abstract.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.core.UserNet import UserNet
-from P4PCore.event.SecureNetFinishedToHelloOnRecverEvent import SecureNetFinishedToHelloOnRecverEvent, SecureNetFinishedToHelloOnRecverEventResult
-from P4PCore.event.SecureNetOverflowedEncrypterSeqOnRecverEvent import SecureNetOverflowedEncrypterSeqOnRecverEvent
-from P4PCore.event.SecureNetOverflowedEncrypterSeqOnSenderEvent import SecureNetOverflowedEncrypterSeqOnSenderEvent
-from P4PCore.event.SecureNetStartedToHelloOnRecver import SecureNetStartedToHelloOnRecver
-from P4PCore.manager.Events import Events
-from P4PCore.model.Ed25519Signer import Ed25519Signer
-from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
-from P4PCore.abstract.NetHandler import NetHandler
-from P4PCore.model.Response import Response
-from P4PCore.model.NodeIdentify import NodeIdentify
-from P4PCore.manager.WaitingResponses import WaitingResponses
-from P4PCore.model.WaitingResponse import WaitingResponse
-from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
+from P4PCore.core.event.SecureNetFinishedToHelloOnRecverEvent import SecureNetFinishedToHelloOnRecverEvent, SecureNetFinishedToHelloOnRecverEventResult
+from P4PCore.core.event.SecureNetStartedToHelloOnRecver import SecureNetStartedToHelloOnRecver
+from P4PCore.common.manager.Events import Events
+from P4PCore.common.model.Ed25519Signer import Ed25519Signer
+from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from P4PCore.core.abstract.NetHandler import NetHandler
+from P4PCore.common.model.Response import Response
+from P4PCore.common.model.NodeIdentify import NodeIdentify
+from P4PCore.common.manager.WaitingResponses import WaitingResponses
+from P4PCore.common.model.WaitingResponse import WaitingResponse
+from P4PCore.common.model.WaitingResponseInfo import WaitingResponseInfo
 from P4PCore.core.Net import Net
-from P4PCore.util.BytesCoverter import *
-from P4PCore.protocol.Protocol import *
-from P4PCore.manager.SimpleImpls import SimpleCannotDeleteAndOverwriteBiKVManager, SimpleCannotOverwriteKVManager, SimpleCannotDeleteAndOverwriteKVManager, SimpleSetManager
-from P4PCore.model.X25519AndAesEncrypter import EncrypterOverflowException, X25519AndAesgcmEncrypter
-from P4PCore.util import BytesSplitter
+from P4PCore.common.util.BytesCoverter import *
+from P4PCore.core.protocol.Protocol import *
+from P4PCore.core.model.X25519AndAesEncrypter import X25519AndAesgcmEncrypter
+from P4PCore.common.util import BytesSplitter
 
-class SecureNet(NetHandler, NetHandlerRegistry):
+@dataclass
+class _HelloStorage:
+    otherPartyEd25519PublicKey:HashableEd25519PublicKey | None = None
+    myChallengeToken:bytes | None = None
+    encrypter:X25519AndAesgcmEncrypter | None = None
+
+class SecureNet(NetHandler):
     """
     Provide secure peer-to-peer communication with Ed25519/X25519-based and AES handshakes and encryption.
     """
-    _net:Net
-    _ed25519Signer:Ed25519Signer
-    _waitingResponses:WaitingResponses
-    _encrypters:SimpleCannotOverwriteKVManager[tuple[str, int], X25519AndAesgcmEncrypter]
-    _handlers:SimpleSetManager[NetHandler]
-    _helloingAddrs:SimpleSetManager[tuple[str, int]]
-
-    _addrToEd25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey]
-    _events:Events
-    _magic:bytes
-    @classmethod
-    async def create(
-        cls,
+    def __init__(
+        self,
         net:Net,
         userNet:UserNet,
         ed25519Signer:Ed25519Signer,
-        addrToed25519PublicKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey],
+        getLoggerFunc:Callable[[str], Logger],
         events:Events,
-        magic:bytes
-    ) -> "SecureNet":
+        magic:bytes,
+        helloingsMaxSize:int = 100,
+        helloingsTimeoutSeconds:float = 4
+    ):
         """
         Create a new secure network handler and register it with the user network.
         :param net: The underlying network instance to use for secure communication.
         :param userNet: The user network registry used to register this secure handler.
         :param ed25519Signer: The signer used to authenticate secure connections.
-        :param addrToed25519PublicKeys: The mapping of addresses to known Ed25519 public keys.
         :param events: The event manager used for secure network event notifications.
-        :param magic: A byte string representing the packet flag. Default is b"P4P5".
-        :return: The initialized SecureNet instance.
+        :param magic: A byte string representing the packet flag.
+        :param helloingsMaxSize: Maximum size of the ongoing hello handshake cache (> 0).
+        :param helloingsTimeoutSeconds: Timeout in seconds for the hello handshake cache TTL (> 0).
         """
-        inst = cls()
 
-        inst._net = net
-        inst._ed25519Signer = ed25519Signer
-        inst._waitingResponses = WaitingResponses()
-        inst._encrypters = SimpleCannotOverwriteKVManager()
-        inst._handlers = SimpleSetManager()
-        inst._helloingAddrs = SimpleSetManager()
+        self._net:Net = net
+        self._ed25519Signer:Ed25519Signer = ed25519Signer
+        self._logger:Logger = getLoggerFunc(__name__)
+        self._waitingResponses:WaitingResponses = WaitingResponses()
+        self._encrypters:dict[tuple[str, int], X25519AndAesgcmEncrypter] = {}
+        self._handlers:set[NetHandler] = set()
 
-        inst._addrToEd25519PublicKeys = addrToed25519PublicKeys
-        inst._events = events
-        inst._magic = magic
+        self._events:Events = events
+        self._magic:bytes = magic
 
-        if not await userNet.registerHandler(itob(PacketFlag.SECURE, PacketElementSize.PACKET_FLAG), inst):
+        if helloingsMaxSize <= 0:
+            raise ValueError("helloingsMaxSize > 0")
+        elif helloingsTimeoutSeconds <= 0:
+            raise ValueError("helloingsTimeoutSeconds > 0")
+        self._helloings:TTLCache[tuple[str, int], _HelloStorage | None] = TTLCache(maxsize=helloingsMaxSize, ttl=helloingsTimeoutSeconds)
+
+        self._confirmedAddrsToEd25519PublicKeys:dict[tuple[str, int], HashableEd25519PublicKey] = {}
+
+        if not userNet.registerHandler(itob(PacketFlag.SECURE, PacketElementSize.PACKET_FLAG), self):
             raise Exception("Cannot register for NetHandler. May be another handler registered for the same flag.")
 
-        return inst
-    
-    async def registerHandler(self, handler:NetHandler) -> bool:
+    def registerHandler(self, handler:NetHandler) -> bool:
         """
         Register a handler that will receive decrypted secure packets.
         :param handler: The handler to register for secure packet dispatch.
         :return: True if the handler was successfully registered; otherwise False.
         """
-        return await self._handlers.add(handler)
-    
+        if handler in self._handlers:
+            return False
+        self._handlers.add(handler)
+        return True
+
+    @property
+    def confirmedAddrsToEd25519PublicKeys(self) -> dict[tuple[str, int], HashableEd25519PublicKey]:
+        return self._confirmedAddrsToEd25519PublicKeys.copy()
+
     class HelloResult(IntEnum):
         SUCCESS = a()
         NET_HAS_STAERED_YET = a()
@@ -92,24 +99,39 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         ALREADY_CONNECTED = a()
         ALREADY_CONNECTED_BUT_DIFFERENT_PUBLIC_KEY = a()
         FAILED_FIRST_HELLO = a()
-    async def hello(self, nodeIdentify:NodeIdentify, firstHelloAttempts:int=0, secondHelloVolume:int=1, timeoutSec:float | None = None, encryptionSeqWindowSize:int=1) -> HelloResult:
+    async def hello(self, nodeIdentify:NodeIdentify, timeoutSeconds:float | None = 2, firstHelloAttempts:int | None=3, secondHelloVolume:int=1, encryptionSeqWindowSize:int=1) -> HelloResult:
         """
         Establish a secure connection with the given node.
         :param nodeIdentify: The remote node identity to connect to.
-        :param firstHelloAttempts: The number of first-hello attempts to make before failing.
-        :param secondHelloVolume: The number of second-hello attempts to send once the first stage succeeds.
         :param timeoutSec: The timeout used while waiting for challenge responses.
-        :param encryptionSeqWindowSize: The sequence window size used by the X25519/AES encrypter.
+        :param firstHelloAttempts: The number of first-hello attempts to make before failing (> 0 || == None).
+        :param secondHelloVolume: The number of second-hello attempts to send once the first stage succeeds (> 0).
+        :param encryptionSeqWindowSize: The sequence window size used by the X25519/AES encrypter (> 0).
         :return: The result of the connection attempt.
         """
-        if not await self._helloingAddrs.add(nodeIdentify.addr):
+
+        if firstHelloAttempts is not None and firstHelloAttempts <= 0:
+            raise ValueError("firstHelloAttempts > 0 || firstHelloAttempts == None")
+        elif secondHelloVolume <= 0:
+            raise ValueError("secondHelloVolume > 0")
+        elif encryptionSeqWindowSize <= 0:
+            raise ValueError("encryptionSeqWindowSize > 0")
+
+        if nodeIdentify.addr in self._helloings:
             return self.HelloResult.OTHER_FUNC_IS_ALREADY_TRYING_TO_CONNECT
-        elif await self._encrypters.get(nodeIdentify.addr):
-            if nodeIdentify.hashableEd25519PublicKey in await self._addrToEd25519PublicKeys.getAll():
+        self._helloings[nodeIdentify.addr] = _HelloStorage()
+        
+        if self._encrypters.get(nodeIdentify.addr):
+            if nodeIdentify.hashableEd25519PublicKey in self._confirmedAddrsToEd25519PublicKeys.keys():
                 return self.HelloResult.ALREADY_CONNECTED
             else:
                 return self.HelloResult.ALREADY_CONNECTED_BUT_DIFFERENT_PUBLIC_KEY
-        async with self._waitingResponses.open(
+        
+        encrypter = X25519AndAesgcmEncrypter(
+            True,
+            encryptionSeqWindowSize,
+        )
+        with self._waitingResponses.open(
             WaitingResponse[tuple[HashableEd25519PublicKey, bytes], tuple[bytes, bytes, bytes]](
                 WaitingResponseInfo(nodeIdentify.addr),
                 otherInfo=(nodeIdentify.hashableEd25519PublicKey, (nextChallengeToken := os.urandom(ANY_UNIQUE_RANDOM_BYTES_SIZE)))
@@ -117,174 +139,145 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         ) as c:
             success = False
             i = 0
-            while not firstHelloAttempts or i < firstHelloAttempts:
-                async with self._waitingResponses.open(
-                    WaitingResponse[tuple[HashableEd25519PublicKey, bytes], tuple[bytes, bytes, bytes]](
-                        WaitingResponseInfo(nodeIdentify.addr),
-                        otherInfo=(nodeIdentify.hashableEd25519PublicKey, (nextChallengeToken := os.urandom(ANY_UNIQUE_RANDOM_BYTES_SIZE)))
-                    )
-                ) as c:
-                    if not self._net.sendTo(
-                        (
-                            itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
-                            +itob(ModeFlag.HELLO, SecurePacketElementSize.MODE_FLAG)
-                            +c.waitingResponse.waitingResponseInfo.identify
-                            +nextChallengeToken
-                            +self._ed25519Signer.publicKey.publicKeyBytes
-                        ),
-                        nodeIdentify.addr
-                    ):
-                        return self.HelloResult.NET_HAS_STAERED_YET
-                    r = await c.waitingResponse.waitAndGet(timeoutSec)
-                    if r and not r.nextResponseId is None:
-                        success = True
-                        break
+            while firstHelloAttempts is None or i < firstHelloAttempts:
+                if not self._net.sendTo(
+                    (
+                        itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
+                        +itob(ModeFlag.HELLO, SecurePacketElementSize.MODE_FLAG)
+                        +c.waitingResponse.waitingResponseInfo.identify
+                        +nextChallengeToken
+                        +self._ed25519Signer.publicKey.publicKeyBytes
+                        +encrypter.myX25519PublicKeyBytes
+                    ),
+                    nodeIdentify.addr
+                ):
+                    return self.HelloResult.NET_HAS_STAERED_YET
+                r = await c.waitingResponse.waitAndGet(timeoutSeconds)
+                if r is not None:
+                    success = True
+                    break
+                c.waitingResponse.newFuture()
                 i += 1
-            if not success:
-                return self.HelloResult.FAILED_FIRST_HELLO
+        if not success:
+            return self.HelloResult.FAILED_FIRST_HELLO
+        
         nextChallengeToken, recversX25519PubKeyB, aesSalt = r.value
-        encrypter = X25519AndAesgcmEncrypter(
-            True,
-            encryptionSeqWindowSize,
-            salt=aesSalt
-        )
+        encrypter.salt = aesSalt
+
         for _ in range(secondHelloVolume):
             self._net.sendTo(
                 (
                     itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
                     +itob(ModeFlag.SECOND_HELLO, SecurePacketElementSize.MODE_FLAG)
-                    +r.nextResponseId
-                    +(pubKeyRaw := encrypter.myX25519PublicKeyBytes)
-                    +await self._ed25519Signer.sign(nextChallengeToken+pubKeyRaw)
+                    +await self._ed25519Signer.sign(nextChallengeToken+encrypter.myX25519PublicKeyBytes)
                 ),
                 nodeIdentify.addr
             )
-        await encrypter.derive(recversX25519PubKeyB)
-        await self._addrToEd25519PublicKeys.add(nodeIdentify.addr, nodeIdentify.hashableEd25519PublicKey)
-        await self._encrypters.add((nodeIdentify.ip, nodeIdentify.port), encrypter)
+
+        encrypter.otherPartyX25519PublicKeyBytes = recversX25519PubKeyB
+        encrypter.derive()
+        self._confirmedAddrsToEd25519PublicKeys.setdefault(nodeIdentify.addr, nodeIdentify.hashableEd25519PublicKey)
+        self._encrypters.setdefault(nodeIdentify.addr, encrypter)
+        self._helloings.pop(nodeIdentify.addr)
 
         return self.HelloResult.SUCCESS
+
     class SendToSecureResult(IntEnum):
         SUCCESS = a()
         DATA_IS_TOO_LARGE = a()
-        NODE_HASNT_CONNECTED = a()
-        ENCRYPTER_OVERFLOWED = a()
-        NET_DIDNT_BEGIN = a()
-    async def sendToSecure(self, data:bytes, to:tuple[str, int] | NodeIdentify) -> SendToSecureResult:
+        NODE_HASNT_BEEN_CONNECTED = a()
+        LOW_LEVEL_ERROR = a()
+    def sendToSecure(self, data:bytes, node:tuple[str, int] | NodeIdentify) -> SendToSecureResult:
         """
         Send encrypted data to the target node.
         :param data: The plaintext payload to encrypt and send.
-        :param to: The destination addr or node identity.
+        :param node: The destination addr or node identity.
         :return: The status of the send operation.
         """
-        if isinstance(to, NodeIdentify):
-            to = to.addr
+        addr = node.addr if isinstance(node, NodeIdentify) else node
         
         if len(data) > MAX_DATA_SIZE_ON_ENCRYPTED_AES_EXCLUDING_MAGIC-len(self._magic):
             return self.SendToSecureResult.DATA_IS_TOO_LARGE
-        elif not (encrypter := await self._encrypters.get(to)):
-            return self.SendToSecureResult.NODE_HASNT_CONNECTED
-        try:
-            seq, encryptedData = await encrypter.encrypt(data)
-        except EncrypterOverflowException as e:
-            await self._events.triggerEvent(SecureNetOverflowedEncrypterSeqOnSenderEvent(e.seqWhenOverflowed, e.originalData, to))
-            return self.SendToSecureResult.ENCRYPTER_OVERFLOWED
+        elif not (encrypter := self._encrypters.get(addr)):
+            return self.SendToSecureResult.NODE_HASNT_BEEN_CONNECTED
+        
+        seq, encryptedData = encrypter.encrypt(data)
+        
         return self.SendToSecureResult.SUCCESS if self._net.sendTo(
             itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
             +itob(ModeFlag.MAIN_DATA, SecurePacketElementSize.MODE_FLAG)
             +itob(seq, SecurePacketElementSize.SEQ)
             +encryptedData,
-            to
-        ) else self.SendToSecureResult.NET_DIDNT_BEGIN
-    async def deleteNode(self, node:tuple[str, int] | NodeIdentify) -> bool:
-        """
-        Remove a node from the secure encryption registry.
-        :param node: The node address or identity to delete.
-        :return: True if the node existed and was removed; otherwise False.
-        """
-        await self._encrypters.delete(node.addr if isinstance(node, NodeIdentify) else node)
+            addr
+        ) else self.SendToSecureResult.LOW_LEVEL_ERROR
 
-    async def getAddrs(self) -> list[tuple[str, int]]:
+    def bye(self, node:NodeIdentify | tuple[str, int]) -> bool:
         """
-        Get the addresses of nodes with active secure connections.
-        :return: A list of connected node addresses.
         """
-        return list((await self._encrypters.getAll()).keys())
+        addr = node.addr if isinstance(node, NodeIdentify) else node
+        return not not self._encrypters.pop(addr, False)
 
-    async def _recvHelloForTask(
-        self, 
-        addr:tuple[str, int],
-        sendersPubKey:HashableEd25519PublicKey, 
-        sendersResponseIdentify:bytes, 
-        sendersChallengeToken:bytes
-    ) -> None:
-        try:
-            await self._events.triggerEvent(startedEvent := SecureNetStartedToHelloOnRecver(addr))
-
-            encrypter = X25519AndAesgcmEncrypter(False, startedEvent.encryptSeqWindowSize)
-            async with self._waitingResponses.open(
-                WaitingResponse[tuple[HashableEd25519PublicKey, bytes], bytes](
-                    WaitingResponseInfo(addr),
-                    (sendersPubKey, nextChallengetoken := os.urandom(ANY_UNIQUE_RANDOM_BYTES_SIZE))
-                )
-            ) as c:
-                for _ in range(startedEvent.helloVolume):
-                    self._net.sendTo(
-                        (
-                            itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
-                            +itob(ModeFlag.RESP_HELLO, SecurePacketElementSize.MODE_FLAG)
-                            +sendersResponseIdentify
-                            +c.waitingResponse.waitingResponseInfo.identify
-                            +(signEndPart := nextChallengetoken+encrypter.myX25519PublicKeyBytes+encrypter.salt)
-                            +await self._ed25519Signer.sign(sendersChallengeToken+signEndPart)
-                        ),
-                        addr
-                    )
-                    if (r := await c.waitingResponse.waitAndGet(startedEvent.timeoutSecOnHello)) and r.value:
-                        await self._helloingAddrs.remove(addr)
-                        break
-            if not r:
-                await self._events.triggerEvent(SecureNetFinishedToHelloOnRecverEvent(addr, SecureNetFinishedToHelloOnRecverEventResult.FAILED_CHALLENGE))
-                return
-            await self._addrToEd25519PublicKeys.add(addr, sendersPubKey)
-            await encrypter.derive(r.value)
-            await self._encrypters.add(addr, encrypter)
-            await self._events.triggerEvent(SecureNetFinishedToHelloOnRecverEvent(addr, SecureNetFinishedToHelloOnRecverEventResult.SUCCESS))
-        finally:
-            await self._helloingAddrs.remove(addr)
     async def _recvHello(self, data:bytes, addr:tuple[str, int]) -> None:
-        if not await self._helloingAddrs.add(addr):
+        # for recvers
+        if addr in self._helloings:
             return
-        if await self._encrypters.get(addr):
-            await self._helloingAddrs.remove(addr)
+        helloStorage = self._helloings[addr] = _HelloStorage()
+        if self._encrypters.get(addr):
+            self._helloings.pop(addr)
             return
-        sendersResponseIdentify, sendersChallengeToken, sendersEd25519PubKeyB = BytesSplitter.split(
+        
+        sendersResponseIdentify, sendersChallengeToken, sendersEd25519PubKeyB, sendersX25519PubKeyB = BytesSplitter.split(
             data,
             SecurePacketElementSize.RESPONSE_IDENTIFY,
             ANY_UNIQUE_RANDOM_BYTES_SIZE,
-            SecurePacketElementSize.ED25519_PUBLIC_KEY
+            SecurePacketElementSize.ED25519_PUBLIC_KEY,
+            SecurePacketElementSize.X25519_PUBLIC_KEY
         )
         try:
             sendersPubKey = HashableEd25519PublicKey(sendersEd25519PubKeyB)
-        except ValueError:
+        except Exception:
             return
-        if pk := await self._addrToEd25519PublicKeys.get(addr) and not pk == sendersPubKey:
+        
+        if (pK := self._confirmedAddrsToEd25519PublicKeys.get(addr)) and pK == sendersPubKey:
             return
+        try:
+            await self._events.triggerEvent(startedEvent := SecureNetStartedToHelloOnRecver(addr))
+        except Exception:
+            self._helloings.pop(addr, None)
 
-        asyncio.create_task(
-            self._recvHelloForTask(addr, sendersPubKey, sendersResponseIdentify, sendersChallengeToken)
-        )
+        helloStorage.otherPartyEd25519PublicKey = sendersPubKey
+        helloStorage.myChallengeToken = os.urandom(ANY_UNIQUE_RANDOM_BYTES_SIZE)
+        helloStorage.encrypter = X25519AndAesgcmEncrypter(False, startedEvent.encryptSeqWindowSize)
+        helloStorage.encrypter.otherPartyX25519PublicKeyBytes = sendersX25519PubKeyB
+
+        for _ in range(startedEvent.helloVolume):
+            self._net.sendTo(
+                (
+                    itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
+                    +itob(ModeFlag.RESP_HELLO, SecurePacketElementSize.MODE_FLAG)
+                    +sendersResponseIdentify
+                    +(
+                        signEndPart := 
+                            helloStorage.myChallengeToken
+                            +helloStorage.encrypter.myX25519PublicKeyBytes
+                            +helloStorage.encrypter.salt
+                    )
+                    +await self._ed25519Signer.sign(sendersChallengeToken+signEndPart)
+                ),
+                addr
+            )
+
     async def _recvRespHello(self, data:bytes, addr:tuple[str, int]) -> None:
-        myResponseIdentify, nextResponseIdentify, nextChallengeToken, recversX25519PubKeyB, aesSalt, recversSigned = BytesSplitter.split(
+        # for senders
+        myResponseIdentify, nextChallengeToken, recversX25519PubKeyB, aesSalt, recversSigned = BytesSplitter.split(
             data, 
-            ANY_UNIQUE_RANDOM_BYTES_SIZE,
             ANY_UNIQUE_RANDOM_BYTES_SIZE,
             ANY_UNIQUE_RANDOM_BYTES_SIZE,
             SecurePacketElementSize.X25519_PUBLIC_KEY,
             SecurePacketElementSize.AES_SALT,
             SecurePacketElementSize.ED25519_SIGN
         )
-        wR:WaitingResponse[tuple[HashableEd25519PublicKey, bytes], tuple[bytes, bytes, bytes]] = await self._waitingResponses.get(
+        wR:WaitingResponse[tuple[HashableEd25519PublicKey, bytes], tuple[bytes, bytes, bytes]] = self._waitingResponses.get(
             (addr, myResponseIdentify)
         )
         if not wR:
@@ -292,26 +285,31 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         recversEd25519PubKey, previousChallengeToken = wR.otherInfo
         if not await recversEd25519PubKey.verify(recversSigned, previousChallengeToken+nextChallengeToken+recversX25519PubKeyB+aesSalt):
             return
-        wR.setResponse(Response((nextChallengeToken, recversX25519PubKeyB, aesSalt), nextResponseIdentify=nextResponseIdentify))
+        wR.setResponse(Response((nextChallengeToken, recversX25519PubKeyB, aesSalt)))
+
     async def _recvSecondHello(self, data:bytes, addr:tuple[str, int]) -> None:
-        sendersResponseIdentify, sendersX25519PubKeyB, sendersSigned = BytesSplitter.split(
-            data,
-            ANY_UNIQUE_RANDOM_BYTES_SIZE,
-            SecurePacketElementSize.X25519_PUBLIC_KEY,
-            SecurePacketElementSize.ED25519_SIGN
-        )
-        wR:WaitingResponse[tuple[HashableEd25519PublicKey, bytes], bytes] = await self._waitingResponses.get(
-            (addr, sendersResponseIdentify)
-        )
-        if not wR:
+        # for recvers
+        sendersSigned = data
+
+        if not (helloing := self._helloings.get(addr)):
             return
-        sendersEd25519PubKey, previousChallengeToken = wR.otherInfo
-        try:
-            if not await sendersEd25519PubKey.verify(sendersSigned, previousChallengeToken+sendersX25519PubKeyB):
+        elif not (
+            helloing.otherPartyEd25519PublicKey and
+            helloing.myChallengeToken and
+            helloing.encrypter and
+            helloing.encrypter.otherPartyX25519PublicKeyBytes
+        ):
+            return
+        elif not await helloing.otherPartyEd25519PublicKey.verify(sendersSigned, helloing.myChallengeToken+helloing.encrypter.otherPartyX25519PublicKeyBytes):
                 return
-        except Exception:
-            return
-        wR.setResponse(Response(sendersX25519PubKeyB))
+
+        helloing.encrypter.derive()
+        self._confirmedAddrsToEd25519PublicKeys.setdefault(addr, helloing.otherPartyEd25519PublicKey)
+        self._encrypters.setdefault(addr, helloing.encrypter)
+        self._helloings.pop(addr, None)
+
+        await self._events.triggerEvent(SecureNetFinishedToHelloOnRecverEvent(addr, SecureNetFinishedToHelloOnRecverEventResult.SUCCESS))
+    
     async def _recvMainData(self, data:bytes, addr:tuple[str, int]) -> None:
         if len(data) < SecurePacketElementSize.SEQ:
             return
@@ -320,15 +318,13 @@ class SecureNet(NetHandler, NetHandlerRegistry):
             SecurePacketElementSize.SEQ,
             includeRest=True
         )
-        if not (encrypter := await self._encrypters.get(addr)):
+        if not (encrypter := self._encrypters.get(addr)):
             return
-        try:
-            data = await encrypter.decrypt(encryptedData, btoi(seqB))
-        except EncrypterOverflowException as encrypter:
-            await self._events.triggerEvent(SecureNetOverflowedEncrypterSeqOnRecverEvent(encrypter.seqWhenOverflowed, encrypter.originalData, addr))
+        if not (data := encrypter.decrypt(encryptedData, btoi(seqB))):
             return
-        for handler in await self._handlers.getAll():
+        for handler in self._handlers:
             await handler.handle(data, addr)
+    
     async def handle(self, data:bytes, addr:tuple[str, int]) -> None:
         if len(data) < SecurePacketElementSize.MODE_FLAG:
             return
@@ -351,4 +347,3 @@ class SecureNet(NetHandler, NetHandlerRegistry):
         if not target:
             return
         await target(data, addr)
-

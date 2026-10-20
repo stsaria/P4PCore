@@ -1,8 +1,8 @@
 import pytest
 
-from P4PCore.manager.WaitingResponses import WaitingResponses
-from P4PCore.model.WaitingResponse import WaitingResponse
-from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
+from P4PCore.common.manager.WaitingResponses import WaitingResponses
+from P4PCore.common.model.WaitingResponse import WaitingResponse
+from P4PCore.common.model.WaitingResponseInfo import WaitingResponseInfo
 
 class TestWaitingResponses:
     @pytest.mark.asyncio
@@ -16,10 +16,10 @@ class TestWaitingResponses:
         info = WaitingResponseInfo(("127.0.0.1", 8080))
         waiting = WaitingResponse[str, str](info)
         
-        async with manager.open(waiting) as context:
+        with manager.open(waiting) as context:
             assert context.waitingResponse is waiting
         
-        result = await manager.get(info.key)
+        result = manager.get(info.key)
         assert result is None
 
     @pytest.mark.asyncio
@@ -28,17 +28,6 @@ class TestWaitingResponses:
         info = WaitingResponseInfo(("127.0.0.1", 8080))
         waiting = WaitingResponse[str, str](info)
         
-        async with manager.open(waiting):
-            result = await manager.get(info.key)
+        with manager.open(waiting):
+            result = manager.get(info.key)
             assert result is waiting
-
-    @pytest.mark.asyncio
-    async def testContextManager(self):
-        manager = WaitingResponses()
-        info = WaitingResponseInfo(("127.0.0.1", 8080))
-        waiting = WaitingResponse[str, str](info)
-        
-        async with manager.open(waiting) as context:
-            assert context._exited is False
-        
-        assert context._exited is True

@@ -2,17 +2,16 @@ import pytest
 import asyncio
 
 from P4PCore.P4PRunner import P4PRunner
-from P4PCore.abstract.NetHandler import NetHandler
+from P4PCore.core.abstract.NetHandler import NetHandler
 from P4PCore.core.Net import Net
-from P4PCore.manager.Events import Events
-from P4PCore.protocol.Protocol import PacketElementSize, PacketFlag
-from P4PCore.util.BytesCoverter import itob
+from P4PCore.common.manager.Events import Events
+from P4PCore.core.protocol.Protocol import PacketElementSize, PacketFlag
+from P4PCore.common.util.BytesCoverter import itob
 
 MAGIC = b"P4P5"
 
 class TestNet:
-    @pytest.mark.asyncio
-    async def testNetCreate(self):
+    def testNetCreate(self):
         net = Net(Events(), MAGIC)
         assert net.isRunning() is False
 
@@ -29,17 +28,13 @@ class TestNet:
 
     @pytest.mark.asyncio
     async def testNetSendToWithoutStart(self):
-        net = Net(Events(), MAGIC)
-        net.v4ListeningAddr = ("127.0.0.1", 0)
-        net.v6ListeningAddr = ("::1", 0)
+        net = Net(Events(), MAGIC, ("127.0.0.1", 0), ("::1", 0))
         
         assert not (net.sendTo(b"test", ("127.0.0.1", 8080)) and net.sendTo(b"test", ("::1", 8080)))
 
     @pytest.mark.asyncio
     async def testNetSendToAfterStart(self):
-        net = Net(Events(), MAGIC)
-        net.v4ListeningAddr = ("127.0.0.1", 0)
-        net.v6ListeningAddr = ("::1", 0)
+        net = Net(Events(), MAGIC, ("127.0.0.1", 0), ("::1", 0))
         
         await net.begin()
         
@@ -60,7 +55,7 @@ class TestNetHandlerCommunication:
             async def handle(self, data: bytes, _: tuple[str, int]) -> None:
                 self.receivedData.append(data)
         handler = TestNetHandler()
-        assert await net.registerHandler(handler)
+        assert net.registerHandler(handler)
 
         await net.begin()
         await asyncio.sleep(0.1)

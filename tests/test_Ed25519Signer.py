@@ -1,5 +1,5 @@
 import pytest
-from P4PCore.model.Ed25519Signer import Ed25519Signer
+from P4PCore.common.model.Ed25519Signer import Ed25519Signer
 
 
 class TestEd25519Signer:

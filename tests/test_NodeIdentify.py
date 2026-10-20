@@ -1,8 +1,8 @@
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from P4PCore.model.NodeIdentify import NodeIdentify
-from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from P4PCore.common.model.NodeIdentify import NodeIdentify
+from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 
 
 class TestNodeIdentify:
