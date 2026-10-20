@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import colorsys
+import queue
 import secrets
 import threading
 import time
@@ -10,6 +11,9 @@ from tkinter import ttk
 
 from P4PCore.P4PRunner import P4PRunner
 from P4PCore.common.manager.Events import EventListener
+from P4PCore.common.util.BytesCoverter import itob
+from P4PCore.core.Net import Net
+from P4PCore.core.protocol.Protocol import PacketElementSize, PacketFlag
 from P4PCore.plugin.append.nodeGossiper.NodeGossiper import NodeGossiper
 from P4PCore.plugin.base.gossiper.Gossiper import Gossiper
 
@@ -19,6 +23,9 @@ if __package__:
         BOARD_WIDTH,
         CLAIM_GOSSIP_UUID,
         CLAIM_SIZE,
+        BATTLE_COMMAND_RESET,
+        BATTLE_COMMAND_START,
+        CONTROL_UUID,
         HEARTBEAT_TIMEOUT_SECONDS,
         SNAPSHOT_GOSSIP_UUID,
         SNAPSHOT_REQUEST_GOSSIP_UUID,
@@ -36,6 +43,8 @@ if __package__:
         decodeSnapshot,
         decodeSnapshotRequest,
         decodeTeam,
+        createTeamProfile,
+        encodeControl,
         encodeSnapshotRequest,
         parseBootstrapNode,
     )
@@ -45,6 +54,9 @@ else:
         BOARD_WIDTH,
         CLAIM_GOSSIP_UUID,
         CLAIM_SIZE,
+        BATTLE_COMMAND_RESET,
+        BATTLE_COMMAND_START,
+        CONTROL_UUID,
         HEARTBEAT_TIMEOUT_SECONDS,
         SNAPSHOT_GOSSIP_UUID,
         SNAPSHOT_REQUEST_GOSSIP_UUID,
@@ -62,6 +74,8 @@ else:
         decodeSnapshot,
         decodeSnapshotRequest,
         decodeTeam,
+        createTeamProfile,
+        encodeControl,
         encodeSnapshotRequest,
         parseBootstrapNode,
     )
@@ -78,16 +92,34 @@ def createTeamColor(workerId:bytes) -> str:
     return f"#{int(red * 255):02x}{int(green * 255):02x}{int(blue * 255):02x}"
 
 
+def sendDirectBattleCommand(
+    net:Net,
+    peers:set[tuple[str, int]],
+    controllerId:bytes,
+    issuedAt:int,
+    counter:int,
+    command:int,
+) -> list[tuple[str, int]]:
+    packet = (
+        itob(PacketFlag.USER, PacketElementSize.PACKET_FLAG)
+        + CONTROL_UUID.bytes
+        + encodeControl(controllerId, issuedAt, counter, command)
+    )
+    return [
+        peer
+        for peer in sorted(peers)
+        if not net.sendTo(packet, peer)
+    ]
+
+
 class TerritoryViewer:
     def __init__(
         self,
         bootstrapNodes:set[tuple[str, int]],
         host:str,
-        port:int,
     ):
         self._bootstrapNodes = bootstrapNodes
         self._host = host
-        self._port = port
         self._lock = threading.Lock()
         self._teams:dict[bytes, dict[str, int | str | bool]] = {}
         self._lastSeen:dict[bytes, float] = {}
@@ -101,6 +133,8 @@ class TerritoryViewer:
         self._loop:asyncio.AbstractEventLoop | None = None
         self._stopAsyncEvent:asyncio.Event | None = None
         self._viewerId = secrets.token_bytes(8)
+        self._commands:queue.SimpleQueue[int] = queue.SimpleQueue()
+        self._battleStarted = False
         self._thread = threading.Thread(target=self._runThread, daemon=True)
 
     def start(self) -> None:
@@ -112,6 +146,16 @@ class TerritoryViewer:
             self._loop.call_soon_threadsafe(self._stopAsyncEvent.set)
         if self._thread.is_alive():
             self._thread.join(timeout=3)
+
+    def sendBattleCommand(self, command:int) -> None:
+        if command not in (BATTLE_COMMAND_START, BATTLE_COMMAND_RESET):
+            raise ValueError("unknown battle command")
+        with self._lock:
+            self._battleStarted = command == BATTLE_COMMAND_START
+            if command == BATTLE_COMMAND_RESET:
+                self._snapshots.clear()
+                self._claims.clear()
+        self._commands.put(command)
 
     def snapshot(self) -> dict[str, object]:
         now = time.monotonic()
@@ -131,13 +175,12 @@ class TerritoryViewer:
                 })
             board = [0] * (BOARD_WIDTH * BOARD_HEIGHT)
             candidates:dict[int, list[tuple[bytes, int]]] = {}
-            for workerId, (_, cells) in self._snapshots.items():
-                if workerId not in aliveIds:
-                    continue
-                for cellIndex in cells:
-                    candidates.setdefault(cellIndex, []).append(
-                        (workerId, self._heartbeatCounters.get(workerId, 0))
-                    )
+            if self._battleStarted:
+                for workerId, (_, cells) in self._snapshots.items():
+                    for cellIndex in cells:
+                        candidates.setdefault(cellIndex, []).append(
+                            (workerId, self._heartbeatCounters.get(workerId, 0))
+                        )
             for cellIndex, owners in candidates.items():
                 claimed = self._claims.get(cellIndex)
                 if claimed is not None and claimed[0] in aliveIds:
@@ -188,7 +231,7 @@ class TerritoryViewer:
         self._stopAsyncEvent = asyncio.Event()
         if self._stopThreadEvent.is_set():
             self._stopAsyncEvent.set()
-        runner = P4PRunner(netV4ListeningAddr=(self._host, self._port))
+        runner = P4PRunner(netV4ListeningAddr=(self._host, 0))
         nodeGossiper = NodeGossiper(
             runner,
             syncIntervalSeconds=0.5,
@@ -197,6 +240,7 @@ class TerritoryViewer:
         gossipers:list[Gossiper] = []
         runnerStarted = False
         requestTask:asyncio.Task | None = None
+        controlTask:asyncio.Task | None = None
         try:
             await runner.begin()
             runnerStarted = True
@@ -266,14 +310,16 @@ class TerritoryViewer:
                         print(f"Ignored invalid territory claim: {error}")
                         return
                     with viewer._lock:
+                        if not viewer._battleStarted:
+                            return
                         current = viewer._claims.get(cellIndex, (b"", -1))
                         if (sequence, ownerId) > (current[1], current[0]):
                             viewer._claims[cellIndex] = (ownerId, sequence)
+                        name, strength = createTeamProfile(ownerId)
                         viewer._teams.setdefault(ownerId, {
-                            "name": f"Team {ownerId.hex()[:4]}",
-                            "strength": 1,
-                            "address": event.addr[0],
-                            "port": event.addr[1],
+                            "name": name,
+                            "strength": strength,
+                            "active": False,
                         })
                     claimGossiper.addGossip(event.gossipContent, event.addr)
 
@@ -281,14 +327,7 @@ class TerritoryViewer:
                 @EventListener
                 async def onTeam(self, event:TerritoryTeamRecvedEvent) -> None:
                     try:
-                        (
-                            ownerId,
-                            counter,
-                            strength,
-                            name,
-                            address,
-                            port,
-                        ) = decodeTeam(event.gossipContent)
+                        ownerId, counter, active = decodeTeam(event.gossipContent)
                     except ValueError as error:
                         print(f"Ignored invalid team announcement: {error}")
                         return
@@ -300,11 +339,11 @@ class TerritoryViewer:
                             teamGossiper.deleteGossip(previous)
                         viewer._latestHeartbeats[ownerId] = event.gossipContent
                         viewer._heartbeatCounters[ownerId] = counter
+                        name, strength = createTeamProfile(ownerId)
                         viewer._teams[ownerId] = {
                             "name": name,
                             "strength": strength,
-                            "address": address,
-                            "port": port,
+                            "active": active,
                         }
                         viewer._lastSeen[ownerId] = time.monotonic()
                     teamGossiper.addGossip(event.gossipContent, event.addr)
@@ -321,6 +360,8 @@ class TerritoryViewer:
                         print(f"Ignored invalid territory snapshot: {error}")
                         return
                     with viewer._lock:
+                        if not viewer._battleStarted:
+                            return
                         previous = viewer._snapshots.get(ownerId)
                         if previous is None or counter > previous[0]:
                             viewer._snapshots[ownerId] = (counter, cells)
@@ -359,7 +400,49 @@ class TerritoryViewer:
                     )
                     await asyncio.sleep(3)
 
+            async def sendBattleCommands() -> None:
+                counter = 0
+                while not self._stopAsyncEvent.is_set():
+                    try:
+                        command = self._commands.get_nowait()
+                    except queue.Empty:
+                        await asyncio.sleep(0.05)
+                        continue
+                    if command == BATTLE_COMMAND_RESET:
+                        with self._lock:
+                            self._claims.clear()
+                            self._snapshots.clear()
+                        for gossip in claimGossiper.gossips:
+                            claimGossiper.deleteGossip(gossip)
+                        for gossip in snapshotGossiper.gossips:
+                            snapshotGossiper.deleteGossip(gossip)
+                    counter = (counter + 1) & 0xFFFFFFFF
+                    peers = {
+                        node.addr
+                        for node in nodeGossiper.nodeIdentifies
+                    } | self._bootstrapNodes
+                    if not peers:
+                        with self._lock:
+                            self._error = "No directly known P2P nodes to command."
+                        continue
+                    failedPeers = sendDirectBattleCommand(
+                        runner.net,
+                        peers,
+                        self._viewerId,
+                        time.time_ns() // 1_000_000,
+                        counter,
+                        command,
+                    )
+                    with self._lock:
+                        self._error = (
+                            "Direct command send failed for: "
+                            + ", ".join(f"{host}:{port}" for host, port in failedPeers)
+                            if failedPeers
+                            else None
+                        )
+
             requestTask = asyncio.create_task(requestTerritorySnapshots())
+            controlTask = asyncio.create_task(sendBattleCommands())
             while not self._stopAsyncEvent.is_set():
                 with self._lock:
                     self._knownNodeCount = len(nodeGossiper.nodeIdentifies)
@@ -371,6 +454,9 @@ class TerritoryViewer:
             if requestTask is not None and not requestTask.done():
                 requestTask.cancel()
                 await asyncio.gather(requestTask, return_exceptions=True)
+            if controlTask is not None and not controlTask.done():
+                controlTask.cancel()
+                await asyncio.gather(controlTask, return_exceptions=True)
             for gossiper in gossipers:
                 await gossiper.end()
             if runnerStarted:
@@ -383,6 +469,8 @@ class TerritoryWarDashboard:
         self._root = root
         self._viewer = viewer
         self._cellItems:list[int] = []
+        self._cellCanvasSize:tuple[int, int] | None = None
+        self._cellFillColors:list[str | None] = []
         self._teams:list[dict] = []
         root.title("Territory Clash! | P2P Battle Observer")
         root.geometry("1000x760")
@@ -409,11 +497,35 @@ class TerritoryWarDashboard:
         ).pack(anchor="w", padx=24, pady=(18, 0))
         tk.Label(
             root,
-            text="A live map collected from the P2P teams.",
+            text="A live map collected from the P2P teams. Start or reset the battle here.",
             font=("TkDefaultFont", 11),
             fg=MUTED,
             bg=BACKGROUND,
         ).pack(anchor="w", padx=27, pady=(0, 14))
+        controls = tk.Frame(root, bg=BACKGROUND)
+        controls.pack(fill="x", padx=24, pady=(0, 10))
+        tk.Button(
+            controls,
+            text="Start",
+            command=lambda: self._viewer.sendBattleCommand(BATTLE_COMMAND_START),
+            bg="#70e1c1",
+            fg="#101522",
+            activebackground="#8bf0d2",
+            relief="flat",
+            padx=14,
+            pady=7,
+        ).pack(side="left", padx=(0, 8))
+        tk.Button(
+            controls,
+            text="Reset",
+            command=lambda: self._viewer.sendBattleCommand(BATTLE_COMMAND_RESET),
+            bg="#e2a65b",
+            fg="#101522",
+            activebackground="#efb971",
+            relief="flat",
+            padx=14,
+            pady=7,
+        ).pack(side="left")
 
         self._canvas = tk.Canvas(
             root,
@@ -427,7 +539,7 @@ class TerritoryWarDashboard:
         teamFrame.pack(fill="x", padx=24, pady=(8, 4))
         self._teamsTable = ttk.Treeview(
             teamFrame,
-            columns=("name", "strength", "territory", "state", "address"),
+            columns=("name", "strength", "territory", "state"),
             show="headings",
             height=8,
         )
@@ -436,10 +548,9 @@ class TerritoryWarDashboard:
             ("strength", "Power", 70),
             ("territory", "Land", 70),
             ("state", "State", 90),
-            ("address", "Node address", 230),
         ):
             self._teamsTable.heading(column, text=title)
-            self._teamsTable.column(column, width=width, stretch=column in ("name", "address"))
+            self._teamsTable.column(column, width=width, stretch=column == "name")
         teamScrollbar = ttk.Scrollbar(
             teamFrame,
             orient="vertical",
@@ -474,6 +585,7 @@ class TerritoryWarDashboard:
                 )
                 for _ in range(BOARD_WIDTH * BOARD_HEIGHT)
             ]
+            self._cellFillColors = [None] * len(self._cellItems)
         self._renderBoard(data["board"])
         orderedTeams = sorted(
             self._teams,
@@ -491,8 +603,11 @@ class TerritoryWarDashboard:
                 team["name"],
                 team["strength"],
                 team["territory"],
-                "ONLINE" if team["alive"] else "OFFLINE",
-                f"{team['address']}:{team['port']}",
+                (
+                    "OFFLINE"
+                    if not team["alive"]
+                    else "PLAYING" if team["active"] else "WAITING"
+                ),
             )
             if self._teamsTable.exists(teamId):
                 self._teamsTable.item(teamId, values=values, tags=(tag,))
@@ -512,7 +627,7 @@ class TerritoryWarDashboard:
                 + (f"  |  Network error: {error}" if error else "")
             )
         )
-        self._root.after(500, self._refresh)
+        self._root.after(120, self._refresh)
 
     def _drawBoard(self, _:tk.Event | None=None) -> None:
         self._renderBoard(self._viewer.snapshot()["board"])
@@ -524,24 +639,27 @@ class TerritoryWarDashboard:
         height = max(1, self._canvas.winfo_height())
         cellWidth = width / BOARD_WIDTH
         cellHeight = height / BOARD_HEIGHT
+        if self._cellCanvasSize != (width, height):
+            for cellIndex, item in enumerate(self._cellItems):
+                x = cellIndex % BOARD_WIDTH
+                y = cellIndex // BOARD_WIDTH
+                self._canvas.coords(
+                    item,
+                    x * cellWidth,
+                    y * cellHeight,
+                    (x + 1) * cellWidth,
+                    (y + 1) * cellHeight,
+                )
+            self._cellCanvasSize = (width, height)
         colors = {
             index + 1: team["color"]
             for index, team in enumerate(self._teams)
         }
         for cellIndex, item in enumerate(self._cellItems):
-            x = cellIndex % BOARD_WIDTH
-            y = cellIndex // BOARD_WIDTH
-            self._canvas.coords(
-                item,
-                x * cellWidth,
-                y * cellHeight,
-                (x + 1) * cellWidth,
-                (y + 1) * cellHeight,
-            )
-            self._canvas.itemconfigure(
-                item,
-                fill=colors.get(board[cellIndex], NEUTRAL),
-            )
+            fill = colors.get(board[cellIndex], NEUTRAL)
+            if self._cellFillColors[cellIndex] != fill:
+                self._canvas.itemconfigure(item, fill=fill)
+                self._cellFillColors[cellIndex] = fill
 
     def _close(self) -> None:
         self._viewer.stop()
@@ -560,16 +678,13 @@ def createParser() -> argparse.ArgumentParser:
         metavar="HOST:PORT",
         help="Battle node to join; repeat for multiple bootstrap nodes",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Address to bind")
-    parser.add_argument("--port", type=int, default=47480, help="Viewer UDP port")
+    parser.add_argument("--host", default="0.0.0.0", help="Address to bind")
     return parser
 
 
 def main(args:Sequence[str] | None=None) -> None:
     options = createParser().parse_args(args)
-    if not 0 <= options.port <= 65535:
-        raise SystemExit("--port must be between 0 and 65535")
-    viewer = TerritoryViewer(set(options.bootstrap), options.host, options.port)
+    viewer = TerritoryViewer(set(options.bootstrap), options.host)
     viewer.start()
     root = tk.Tk()
     TerritoryWarDashboard(root, viewer)

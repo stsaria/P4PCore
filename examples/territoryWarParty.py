@@ -1,10 +1,13 @@
 import argparse
 import ipaddress
+import queue
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
+
 
 def parseBootstrapNode(value:str) -> tuple[str, int]:
     host, separator, portText = value.rpartition(":")
@@ -33,39 +36,17 @@ VIEWER_SCRIPT = EXAMPLES_DIR / "territoryWarGui.py"
 
 def createParser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Launch several independent territory teams and the observer."
+        description="Launch independent territory nodes and the observer."
     )
     parser.add_argument("--nodes", type=int, default=4, help="Number of team processes")
-    parser.add_argument("--host", default="127.0.0.1", help="Address each team binds to")
-    parser.add_argument(
-        "--advertise-host",
-        help="LAN-reachable IP announced by teams when binding to 0.0.0.0",
-    )
-    parser.add_argument("--port", type=int, default=12598, help="First team UDP port")
-    parser.add_argument(
-        "--minutes",
-        type=float,
-        default=30,
-        help="Run time for each team (default: 30 minutes)",
-    )
-    parser.add_argument(
-        "--name-prefix",
-        default="Team",
-        help="Prefix for generated team names (default: Team)",
-    )
-    parser.add_argument(
-        "--strength",
-        type=int,
-        default=1,
-        help="First team's strength; subsequent teams gain one strength each",
-    )
+    parser.add_argument("--host", default="127.0.0.1", help="Address each process binds to")
     parser.add_argument(
         "--bootstrap",
         action="append",
         type=parseBootstrapNode,
         default=[],
         metavar="HOST:PORT",
-        help="Existing peer for teams and observer; repeat for multiple peers",
+        help="Existing peer; repeat for multiple peers",
     )
     parser.add_argument(
         "--no-gui",
@@ -78,75 +59,75 @@ def createParser() -> argparse.ArgumentParser:
 def buildLaunchCommands(
     nodesCount:int,
     host:str,
-    port:int,
-    minutes:float,
-    namePrefix:str,
-    firstStrength:int,
     bootstrapNodes:set[tuple[str, int]],
-    advertiseHost:str | None,
     launchGui:bool=True,
 ) -> tuple[list[list[str]], list[str] | None]:
     if nodesCount < 1:
         raise ValueError("nodesCount must be greater than 0")
-    highestPort = port + nodesCount if launchGui else port + nodesCount - 1
-    if not 1 <= port <= 65535 or highestPort > 65535:
-        raise ValueError("team and observer port range must fit between 1 and 65535")
-    if firstStrength < 1 or firstStrength + nodesCount - 1 > 255:
-        raise ValueError("strength range must fit between 1 and 255")
-    if minutes <= 0:
-        raise ValueError("minutes must be greater than 0")
-    if not namePrefix:
-        raise ValueError("namePrefix must not be empty")
-
-    seed = next(iter(sorted(bootstrapNodes)), None)
-    localSeed = (host if host not in ("0.0.0.0", "::") else advertiseHost, port)
-    if seed is None:
-        if localSeed[0] is None:
-            raise ValueError("advertiseHost is required when host is a wildcard")
-        seed = (str(localSeed[0]), port)
-
+    peers = sorted(bootstrapNodes)
     teamCommands = []
-    for index in range(nodesCount):
-        name = f"{namePrefix}{index + 1}"
-        if len(name.encode("utf-8")) > 16:
-            raise ValueError("generated team names must fit within 16 UTF-8 bytes")
-        teamPort = port + index
-        command = [
-            sys.executable,
-            str(TEAM_SCRIPT),
-            "--host",
-            host,
-            "--port",
-            str(teamPort),
-            "--name",
-            name,
-            "--strength",
-            str(firstStrength + index),
-            "--minutes",
-            str(minutes),
-        ]
-        if advertiseHost:
-            command.extend(["--advertise-host", advertiseHost])
-        peers = set(bootstrapNodes)
-        if index > 0 and not peers:
-            peers.add((str(seed[0]), port))
-        for peerHost, peerPort in sorted(peers):
+    for _ in range(nodesCount):
+        command = [sys.executable, str(TEAM_SCRIPT), "--host", host]
+        for peerHost, peerPort in peers:
             command.extend(["--bootstrap", f"{peerHost}:{peerPort}"])
         teamCommands.append(command)
 
     guiCommand = None
     if launchGui:
-        guiCommand = [
-            sys.executable,
-            str(VIEWER_SCRIPT),
-            "--host",
-            host,
-            "--port",
-            str(port + nodesCount),
-        ]
-        for peerHost, peerPort in sorted(set(bootstrapNodes) or {seed}):
+        guiCommand = [sys.executable, str(VIEWER_SCRIPT), "--host", host]
+        for peerHost, peerPort in peers:
             guiCommand.extend(["--bootstrap", f"{peerHost}:{peerPort}"])
     return teamCommands, guiCommand
+
+
+def _readProcessOutput(
+    process:subprocess.Popen,
+    readyPorts:queue.Queue[int],
+) -> None:
+    if process.stdout is None:
+        return
+    for line in process.stdout:
+        print(line, end="", flush=True)
+        if line.startswith("READY "):
+            try:
+                readyPorts.put(int(line.removeprefix("READY ").strip()))
+            except ValueError:
+                print(f"Ignoring invalid node readiness message: {line.rstrip()}")
+
+
+def _startProcess(
+    command:list[str],
+    readyPorts:queue.Queue[int],
+) -> subprocess.Popen:
+    process = subprocess.Popen(
+        command,
+        cwd=EXAMPLES_DIR.parent,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    threading.Thread(
+        target=_readProcessOutput,
+        args=(process, readyPorts),
+        daemon=True,
+    ).start()
+    return process
+
+
+def _waitForReady(
+    process:subprocess.Popen,
+    readyPorts:queue.Queue[int],
+) -> int:
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError("The first territory node exited before becoming ready")
+        try:
+            return readyPorts.get(timeout=0.1)
+        except queue.Empty:
+            continue
+    raise RuntimeError("Timed out waiting for the first territory node to become ready")
 
 
 def stopProcesses(processes:list[subprocess.Popen]) -> None:
@@ -166,27 +147,52 @@ def stopProcesses(processes:list[subprocess.Popen]) -> None:
 def runParty(
     teamCommands:list[list[str]],
     guiCommand:list[str] | None,
+    host:str,
+    bootstrapNodes:set[tuple[str, int]],
 ) -> int:
     processes:list[subprocess.Popen] = []
+    readyPorts:queue.Queue[int] = queue.Queue()
     try:
-        for command in teamCommands:
-            process = subprocess.Popen(command, cwd=EXAMPLES_DIR.parent)
+        first = _startProcess(teamCommands[0], readyPorts)
+        processes.append(first)
+        print("Started the first territory node.", flush=True)
+
+        localBootstrap = None
+        if not bootstrapNodes and (len(teamCommands) > 1 or guiCommand is not None):
+            port = _waitForReady(first, readyPorts)
+            bootstrapHost = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+            localBootstrap = (bootstrapHost, port)
+
+        for command in teamCommands[1:]:
+            if localBootstrap is not None:
+                command.extend(["--bootstrap", f"{localBootstrap[0]}:{localBootstrap[1]}"])
+            process = _startProcess(command, readyPorts)
             processes.append(process)
-            print(f"Started team process: {' '.join(command[-6:])}", flush=True)
-            time.sleep(0.25)
+            print("Started another territory node.", flush=True)
 
         guiProcess = None
         if guiCommand is not None:
-            guiProcess = subprocess.Popen(guiCommand)
+            if localBootstrap is not None:
+                guiCommand.extend([
+                    "--bootstrap",
+                    f"{localBootstrap[0]}:{localBootstrap[1]}",
+                ])
+            if not bootstrapNodes and localBootstrap is None:
+                port = _waitForReady(first, readyPorts)
+                bootstrapHost = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+                guiCommand.extend(["--bootstrap", f"{bootstrapHost}:{port}"])
+            guiProcess = _startProcess(guiCommand, readyPorts)
             processes.append(guiProcess)
             print("Started territory observer GUI.", flush=True)
 
         while True:
-            teamProcesses = processes[:len(teamCommands)]
-            if all(process.poll() is not None for process in teamProcesses):
-                return max((process.returncode or 0 for process in teamProcesses), default=0)
+            if all(process.poll() is not None for process in processes[:len(teamCommands)]):
+                return max(
+                    (process.returncode or 0 for process in processes[:len(teamCommands)]),
+                    default=0,
+                )
             if guiProcess is not None and guiProcess.poll() is not None:
-                print("Observer GUI closed; stopping team processes.", flush=True)
+                print("Observer GUI closed; stopping territory nodes.", flush=True)
                 return guiProcess.returncode or 0
             time.sleep(0.25)
     except KeyboardInterrupt:
@@ -200,34 +206,21 @@ def main(args:Sequence[str] | None=None) -> int:
     options = createParser().parse_args(args)
     if options.nodes < 1:
         raise SystemExit("--nodes must be greater than 0")
-    if not 1 <= options.port <= 65535:
-        raise SystemExit("--port must be between 1 and 65535")
-    lastPortOffset = options.nodes if not options.no_gui else options.nodes - 1
-    if options.port + lastPortOffset > 65535:
-        raise SystemExit("team and observer ports must fit between 1 and 65535")
-    if options.minutes <= 0:
-        raise SystemExit("--minutes must be greater than 0")
-    if options.strength < 1 or options.strength + options.nodes - 1 > 255:
-        raise SystemExit("team strengths must fit between 1 and 255")
-    if options.host in ("0.0.0.0", "::") and not options.advertise_host:
-        raise SystemExit("--advertise-host is required when --host is a wildcard")
     try:
         teamCommands, guiCommand = buildLaunchCommands(
             options.nodes,
             options.host,
-            options.port,
-            options.minutes,
-            options.name_prefix,
-            options.strength,
             set(options.bootstrap),
-            options.advertise_host,
             not options.no_gui,
         )
     except ValueError as error:
         raise SystemExit(str(error)) from error
-    if guiCommand is not None and options.host in ("0.0.0.0", "::"):
-        guiCommand[guiCommand.index("--host") + 1] = "127.0.0.1"
-    return runParty(teamCommands, guiCommand)
+    return runParty(
+        teamCommands,
+        guiCommand,
+        options.host,
+        set(options.bootstrap),
+    )
 
 
 if __name__ == "__main__":

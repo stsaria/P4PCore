@@ -1,40 +1,48 @@
 import argparse
 import asyncio
-import ipaddress
 import secrets
 import struct
 import time
+from collections import deque
 from collections.abc import Sequence
 from random import Random
 from uuid import UUID
 
 from P4PCore.P4PRunner import P4PRunner
 from P4PCore.common.manager.Events import EventListener
+from P4PCore.core.abstract.NetHandler import NetHandler
 from P4PCore.plugin.append.nodeGossiper.NodeGossiper import NodeGossiper
 from P4PCore.plugin.base.gossiper.Gossiper import Gossiper
 from P4PCore.plugin.base.gossiper.event.GossipRecvedEvent import GossipRecvedEvent
 
 
-BOARD_WIDTH = 48
-BOARD_HEIGHT = 30
+BOARD_WIDTH = 128
+BOARD_HEIGHT = 84
 CELL_COUNT = BOARD_WIDTH * BOARD_HEIGHT
 BITMAP_SIZE = (CELL_COUNT + 7) // 8
 CLAIM_FORMAT = "!8sIH"
 CLAIM_SIZE = struct.calcsize(CLAIM_FORMAT)
-TEAM_FORMAT = "!8sIB16sB16sH"
+TEAM_FORMAT = "!8sIB"
 TEAM_SIZE = struct.calcsize(TEAM_FORMAT)
 SNAPSHOT_FORMAT = f"!8sI{BITMAP_SIZE}s"
 SNAPSHOT_SIZE = struct.calcsize(SNAPSHOT_FORMAT)
 SNAPSHOT_REQUEST_FORMAT = "!8sI"
 SNAPSHOT_REQUEST_SIZE = struct.calcsize(SNAPSHOT_REQUEST_FORMAT)
+CONTROL_FORMAT = "!8sQIB"
+CONTROL_SIZE = struct.calcsize(CONTROL_FORMAT)
 CLAIM_GOSSIP_UUID = UUID("8f8786a9-daea-40aa-b47f-5b925a5135fb")
 TEAM_GOSSIP_UUID = UUID("52b2082e-c858-41eb-92e5-c7cf9bc58ac3")
 SNAPSHOT_GOSSIP_UUID = UUID("a971aac9-8ba8-4a85-84e6-e59b74fe8a18")
 SNAPSHOT_REQUEST_GOSSIP_UUID = UUID("13dad8af-0b19-4b7b-a226-55936297310e")
+CONTROL_UUID = UUID("7c617d85-9c87-4f1e-a4f8-e14e187e5f19")
+BATTLE_COMMAND_START = 1
+BATTLE_COMMAND_RESET = 2
 HEARTBEAT_TIMEOUT_SECONDS = 8
-SNAPSHOT_INTERVAL_SECONDS = 2
+SNAPSHOT_INTERVAL_SECONDS = 0.1
+EXPANSION_INTERVAL_SECONDS = 0.7
+EXPANSION_CLAIMS_PER_STRENGTH = 2
+DISSATISFIED_NEIGHBOR_THRESHOLD = 3
 GOSSIP_TTL_SECONDS = 12
-DEFAULT_PORT = 47474
 
 
 class TerritoryClaimRecvedEvent(GossipRecvedEvent):
@@ -51,6 +59,12 @@ class TerritorySnapshotRecvedEvent(GossipRecvedEvent):
 
 class TerritorySnapshotRequestRecvedEvent(GossipRecvedEvent):
     pass
+
+
+def createTeamProfile(workerId:bytes) -> tuple[str, int]:
+    if len(workerId) != 8:
+        raise ValueError("workerId must be 8 bytes")
+    return f"Team-{workerId.hex()[:6]}", workerId[0] % 5 + 1
 
 
 def parseBootstrapNode(value:str) -> tuple[str, int]:
@@ -88,52 +102,22 @@ def decodeClaim(data:bytes) -> tuple[bytes, int, int]:
 def encodeTeam(
     workerId:bytes,
     counter:int,
-    strength:int,
-    name:str,
-    address:str,
-    port:int,
+    active:bool,
 ) -> bytes:
     if len(workerId) != 8:
         raise ValueError("workerId must be 8 bytes")
     if not 0 <= counter <= 0xFFFFFFFF:
         raise ValueError("counter must fit in 4 bytes")
-    if not 1 <= strength <= 255:
-        raise ValueError("strength must be between 1 and 255")
-    nameBytes = name.encode("utf-8")
-    if not nameBytes or len(nameBytes) > 16:
-        raise ValueError("team name must contain 1 to 16 UTF-8 bytes")
-    if not 1 <= port <= 65535:
-        raise ValueError("port must be between 1 and 65535")
-    ipAddress = ipaddress.ip_address(address)
-    return struct.pack(
-        TEAM_FORMAT,
-        workerId,
-        counter,
-        strength,
-        nameBytes.ljust(16, b"\0"),
-        ipAddress.version,
-        ipAddress.packed.ljust(16, b"\0"),
-        port,
-    )
+    return struct.pack(TEAM_FORMAT, workerId, counter, int(active))
 
 
-def decodeTeam(data:bytes) -> tuple[bytes, int, int, str, str, int]:
+def decodeTeam(data:bytes) -> tuple[bytes, int, bool]:
     if len(data) != TEAM_SIZE:
         raise ValueError(f"team announcement must be {TEAM_SIZE} bytes")
-    workerId, counter, strength, nameBytes, ipVersion, packedAddress, port = (
-        struct.unpack(TEAM_FORMAT, data)
-    )
-    if not strength or ipVersion not in (4, 6) or not port:
-        raise ValueError("team announcement contains invalid metadata")
-    addressSize = 4 if ipVersion == 4 else 16
-    try:
-        name = nameBytes.rstrip(b"\0").decode("utf-8")
-        address = str(ipaddress.ip_address(packedAddress[:addressSize]))
-    except (UnicodeDecodeError, ValueError) as error:
-        raise ValueError("team announcement contains invalid text or address") from error
-    if not name:
-        raise ValueError("team name must not be empty")
-    return workerId, counter, strength, name, address, port
+    workerId, counter, active = struct.unpack(TEAM_FORMAT, data)
+    if active not in (0, 1):
+        raise ValueError("team announcement has invalid activity state")
+    return workerId, counter, bool(active)
 
 
 def encodeSnapshot(workerId:bytes, counter:int, cells:set[int]) -> bytes:
@@ -176,6 +160,67 @@ def getAdjacentCells(cellIndex:int) -> set[int]:
     return adjacent
 
 
+def getEightNeighborCells(cellIndex:int) -> set[int]:
+    x = cellIndex % BOARD_WIDTH
+    y = cellIndex // BOARD_WIDTH
+    return {
+        neighborY * BOARD_WIDTH + neighborX
+        for neighborY in range(max(0, y - 1), min(BOARD_HEIGHT, y + 2))
+        for neighborX in range(max(0, x - 1), min(BOARD_WIDTH, x + 2))
+        if (neighborX, neighborY) != (x, y)
+    }
+
+
+def chooseStartingCell(
+    board:list[bytes | None],
+    random:Random,
+) -> int:
+    emptyCells = [
+        cellIndex
+        for cellIndex, ownerId in enumerate(board)
+        if ownerId is None
+    ]
+    if not emptyCells:
+        raise ValueError("board has no empty cells")
+
+    distances = [-1] * len(board)
+    frontier = deque()
+    for cellIndex, ownerId in enumerate(board):
+        if ownerId is not None:
+            distances[cellIndex] = 0
+            frontier.append(cellIndex)
+
+    if not frontier:
+        return random.choice(emptyCells)
+
+    while frontier:
+        cellIndex = frontier.popleft()
+        nextDistance = distances[cellIndex] + 1
+        for adjacent in getAdjacentCells(cellIndex):
+            if distances[adjacent] == -1:
+                distances[adjacent] = nextDistance
+                frontier.append(adjacent)
+
+    farthestDistance = max(distances[cellIndex] for cellIndex in emptyCells)
+    farthestCells = [
+        cellIndex
+        for cellIndex in emptyCells
+        if distances[cellIndex] == farthestDistance
+    ]
+    return random.choice(farthestCells)
+
+
+def countDissatisfiedDirections(
+    board:list[bytes | None],
+    ownerId:bytes,
+    cellIndex:int,
+) -> int:
+    return sum(
+        board[neighbor] != ownerId
+        for neighbor in getEightNeighborCells(cellIndex)
+    )
+
+
 def connectedComponents(cells:set[int]) -> list[set[int]]:
     remaining = set(cells)
     components = []
@@ -204,7 +249,17 @@ def canClaimCell(board:list[bytes | None], ownerId:bytes, cellIndex:int) -> bool
     if not any(board[adjacent] == ownerId for adjacent in getAdjacentCells(cellIndex)):
         return False
     if currentOwner is None:
-        return True
+        return any(
+            countDissatisfiedDirections(board, ownerId, adjacent)
+            >= DISSATISFIED_NEIGHBOR_THRESHOLD
+            for adjacent in getAdjacentCells(cellIndex)
+            if board[adjacent] == ownerId
+        )
+    if (
+        countDissatisfiedDirections(board, currentOwner, cellIndex)
+        < DISSATISFIED_NEIGHBOR_THRESHOLD
+    ):
+        return False
     remainingVictimCells = {
         index
         for index, owner in enumerate(board)
@@ -227,29 +282,37 @@ def decodeSnapshotRequest(data:bytes) -> tuple[bytes, int]:
     return struct.unpack(SNAPSHOT_REQUEST_FORMAT, data)
 
 
+def encodeControl(
+    controllerId:bytes,
+    issuedAt:int,
+    counter:int,
+    command:int,
+) -> bytes:
+    if len(controllerId) != 8:
+        raise ValueError("controllerId must be 8 bytes")
+    if not 0 <= issuedAt <= 0xFFFFFFFFFFFFFFFF:
+        raise ValueError("issuedAt must fit in 8 bytes")
+    if not 0 <= counter <= 0xFFFFFFFF:
+        raise ValueError("counter must fit in 4 bytes")
+    if command not in (BATTLE_COMMAND_START, BATTLE_COMMAND_RESET):
+        raise ValueError("unknown battle command")
+    return struct.pack(CONTROL_FORMAT, controllerId, issuedAt, counter, command)
+
+
+def decodeControl(data:bytes) -> tuple[bytes, int, int, int]:
+    if len(data) != CONTROL_SIZE:
+        raise ValueError(f"battle control must be {CONTROL_SIZE} bytes")
+    controllerId, issuedAt, counter, command = struct.unpack(CONTROL_FORMAT, data)
+    if command not in (BATTLE_COMMAND_START, BATTLE_COMMAND_RESET):
+        raise ValueError("unknown battle command")
+    return controllerId, issuedAt, counter, command
+
+
 def createParser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run one P2P territory team. Launch it once per team."
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Address to bind")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="UDP port")
-    parser.add_argument(
-        "--advertise-host",
-        help="LAN-reachable IP address announced to other nodes",
-    )
-    parser.add_argument("--name", default="Team", help="Team name (up to 16 UTF-8 bytes)")
-    parser.add_argument(
-        "--strength",
-        type=int,
-        default=1,
-        help="Expansion strength (1-255; stronger teams claim more often)",
-    )
-    parser.add_argument(
-        "--minutes",
-        type=float,
-        default=30,
-        help="How long this node plays before exiting (default: 30 minutes)",
-    )
+    parser.add_argument("--host", default="0.0.0.0", help="Address to bind")
     parser.add_argument(
         "--bootstrap",
         action="append",
@@ -270,28 +333,24 @@ def createPeerAddressGetter(nodeGossiper:NodeGossiper):
 
 async def runTeam(
     host:str,
-    port:int,
-    advertiseHost:str,
-    teamName:str,
-    strength:int,
-    durationMinutes:float,
     bootstrapNodes:set[tuple[str, int]],
 ) -> None:
-    runner = P4PRunner(netV4ListeningAddr=(host, port))
+    runner = P4PRunner(netV4ListeningAddr=(host, 0))
     nodeGossiper = NodeGossiper(
         runner,
         syncIntervalSeconds=0.5,
         bootstrapNodes=bootstrapNodes,
     )
     workerId = secrets.token_bytes(8)
+    teamName, strength = createTeamProfile(workerId)
+    startingCellRandom = Random(workerId)
     board:list[bytes | None] = [None] * CELL_COUNT
     versions:list[tuple[int, bytes]] = [(-1, b"")] * CELL_COUNT
-    workers:dict[bytes, dict[str, int | str]] = {
+    workers:dict[bytes, dict[str, int | str | bool]] = {
         workerId: {
             "name": teamName,
             "strength": strength,
-            "address": advertiseHost,
-            "port": port,
+            "active": False,
         }
     }
     lastSeen = {workerId: time.monotonic()}
@@ -300,8 +359,8 @@ async def runTeam(
     deadWorkers:set[bytes] = set()
     sequence = 0
     snapshotCounters:dict[bytes, int] = {}
-    startedAt = time.monotonic()
-    endsAt = startedAt + durationMinutes * 60
+    active = [False]
+    latestControlVersion:tuple[int, int, bytes] = (-1, -1, b"")
     stopEvent = asyncio.Event()
     tasks:list[asyncio.Task] = []
     gossipers:list[Gossiper] = []
@@ -395,12 +454,14 @@ async def runTeam(
                 except ValueError as error:
                     print(f"Ignored invalid territory claim: {error}")
                     return
+                if not active[0]:
+                    return
                 if ownerId not in workers:
+                    ownerName, ownerStrength = createTeamProfile(ownerId)
                     workers[ownerId] = {
-                        "name": f"Team {ownerId.hex()[:4]}",
-                        "strength": 1,
-                        "address": event.addr[0],
-                        "port": event.addr[1],
+                        "name": ownerName,
+                        "strength": ownerStrength,
+                        "active": False,
                     }
                 if ownerId in deadWorkers:
                     return
@@ -417,14 +478,7 @@ async def runTeam(
             @EventListener
             async def onTeam(self, event:TerritoryTeamRecvedEvent) -> None:
                 try:
-                    (
-                        ownerId,
-                        counter,
-                        ownerStrength,
-                        ownerName,
-                        ownerAddress,
-                        ownerPort,
-                    ) = decodeTeam(event.gossipContent)
+                    ownerId, counter, ownerActive = decodeTeam(event.gossipContent)
                 except ValueError as error:
                     print(f"Ignored invalid team announcement: {error}")
                     return
@@ -435,15 +489,49 @@ async def runTeam(
                     teamGossiper.deleteGossip(previous)
                 latestHeartbeats[ownerId] = event.gossipContent
                 heartbeatCounters[ownerId] = counter
+                ownerName, ownerStrength = createTeamProfile(ownerId)
                 workers[ownerId] = {
                     "name": ownerName,
                     "strength": ownerStrength,
-                    "address": ownerAddress,
-                    "port": ownerPort,
+                    "active": ownerActive,
                 }
                 lastSeen[ownerId] = time.monotonic()
                 deadWorkers.discard(ownerId)
                 teamGossiper.addGossip(event.gossipContent, event.addr)
+
+        class ControlHandler(NetHandler):
+            async def handle(self, data:bytes, addr:tuple[str, int]) -> None:
+                nonlocal latestControlVersion, sequence
+                try:
+                    controllerId, issuedAt, counter, command = decodeControl(data)
+                except ValueError as error:
+                    print(f"Ignored invalid direct battle command: {error}")
+                    return
+                controlVersion = (issuedAt, counter, controllerId)
+                if controlVersion <= latestControlVersion:
+                    return
+                latestControlVersion = controlVersion
+                if command == BATTLE_COMMAND_START:
+                    if not active[0] and workerId not in board:
+                        seedCell = chooseStartingCell(board, startingCellRandom)
+                        board[seedCell] = workerId
+                        versions[seedCell] = (0, workerId)
+                        claimGossiper.addGossip(encodeClaim(workerId, 0, seedCell))
+                    active[0] = True
+                    workers[workerId]["active"] = True
+                    publishSnapshot()
+                    return
+
+                active[0] = False
+                workers[workerId]["active"] = False
+                board[:] = [None] * CELL_COUNT
+                versions[:] = [(-1, b"")] * CELL_COUNT
+                sequence = 0
+                for gossip in claimGossiper.gossips:
+                    claimGossiper.deleteGossip(gossip)
+                for gossip in snapshotGossiper.gossips:
+                    snapshotGossiper.deleteGossip(gossip)
+                publishSnapshot()
 
         class SnapshotListener:
             @EventListener
@@ -452,6 +540,8 @@ async def runTeam(
                     ownerId, counter, cells = decodeSnapshot(event.gossipContent)
                 except ValueError as error:
                     print(f"Ignored invalid territory snapshot: {error}")
+                    return
+                if not active[0]:
                     return
                 if ownerId not in workers or ownerId in deadWorkers:
                     return
@@ -505,6 +595,8 @@ async def runTeam(
         runner.eventsManager.registerListener(TeamListener())
         runner.eventsManager.registerListener(SnapshotListener())
         runner.eventsManager.registerListener(SnapshotRequestListener())
+        if not runner.userNet.registerHandler(CONTROL_UUID.bytes, ControlHandler()):
+            raise RuntimeError("Unable to register the direct battle command handler")
         for gossiper in gossipers:
             await gossiper.begin()
 
@@ -512,15 +604,6 @@ async def runTeam(
         if transport is None:
             raise RuntimeError("Node failed to open its IPv4 socket")
         actualPort = int(transport.get_extra_info("sockname")[1])
-        workers[workerId]["port"] = actualPort
-        if advertiseHost in ("0.0.0.0", "::"):
-            raise ValueError("--advertise-host must be a reachable LAN IP address")
-
-        seedCell = int.from_bytes(workerId[:4], "big") % CELL_COUNT
-        board[seedCell] = workerId
-        versions[seedCell] = (0, workerId)
-        claimGossiper.addGossip(encodeClaim(workerId, 0, seedCell))
-        publishSnapshot()
 
         async def publishTeamInfo() -> None:
             counter = 0
@@ -529,14 +612,7 @@ async def runTeam(
                 counter = (counter + 1) & 0xFFFFFFFF
                 if previous is not None:
                     teamGossiper.deleteGossip(previous)
-                previous = encodeTeam(
-                    workerId,
-                    counter,
-                    strength,
-                    teamName,
-                    advertiseHost,
-                    actualPort,
-                )
+                previous = encodeTeam(workerId, counter, active[0])
                 teamGossiper.addGossip(previous)
                 lastSeen[workerId] = time.monotonic()
                 await asyncio.sleep(0.5)
@@ -554,19 +630,22 @@ async def runTeam(
                         continue
                     if now - seenAt > HEARTBEAT_TIMEOUT_SECONDS:
                         deadWorkers.add(ownerId)
-                        for cellIndex, currentOwner in enumerate(board):
-                            if currentOwner == ownerId:
-                                board[cellIndex] = None
-                                versions[cellIndex] = (-1, b"")
                 await asyncio.sleep(0.5)
 
         async def expandTerritory() -> None:
             nonlocal sequence
             random = Random(workerId)
-            while not stopEvent.is_set() and time.monotonic() < endsAt:
+            while not stopEvent.is_set():
+                if not active[0]:
+                    await asyncio.sleep(0.25)
+                    continue
                 frontier:set[int] = set()
                 for cellIndex, ownerId in enumerate(board):
-                    if ownerId != workerId:
+                    if (
+                        ownerId != workerId
+                        or countDissatisfiedDirections(board, workerId, cellIndex)
+                        < DISSATISFIED_NEIGHBOR_THRESHOLD
+                    ):
                         continue
                     frontier.update(getAdjacentCells(cellIndex))
                 frontier = {
@@ -574,7 +653,7 @@ async def runTeam(
                     for cellIndex in frontier
                     if canClaimCell(board, workerId, cellIndex)
                 }
-                for _ in range(strength):
+                for _ in range(strength * EXPANSION_CLAIMS_PER_STRENGTH):
                     if not frontier:
                         break
                     cellIndex = random.choice(tuple(frontier))
@@ -591,11 +670,10 @@ async def runTeam(
                         board[cellIndex] = workerId
                         versions[cellIndex] = version
                         claimGossiper.addGossip(claim)
-                await asyncio.sleep(0.25)
-            stopEvent.set()
-
+                await asyncio.sleep(EXPANSION_INTERVAL_SECONDS)
         print(f"{teamName} [{workerId.hex()[:8]}] listening on {host}:{actualPort}")
-        print(f"Strength: {strength}; battle duration: {durationMinutes:g} minutes")
+        print(f"READY {actualPort}", flush=True)
+        print(f"Strength: {strength}; waiting for the GUI to start the battle.")
         if bootstrapNodes:
             print("Joining through: " + ", ".join(
                 f"{peerHost}:{peerPort}" for peerHost, peerPort in sorted(bootstrapNodes)
@@ -634,31 +712,7 @@ async def runTeam(
 
 async def main(args:Sequence[str] | None=None) -> None:
     options = createParser().parse_args(args)
-    if not 1 <= options.port <= 65535:
-        raise SystemExit("--port must be between 1 and 65535")
-    if not 1 <= options.strength <= 255:
-        raise SystemExit("--strength must be between 1 and 255")
-    if options.minutes <= 0:
-        raise SystemExit("--minutes must be greater than 0")
-    try:
-        if not options.name.encode("utf-8") or len(options.name.encode("utf-8")) > 16:
-            raise ValueError("Team name must contain 1 to 16 UTF-8 bytes")
-    except UnicodeEncodeError as error:
-        raise SystemExit(f"Invalid team name: {error}") from error
-    advertiseHost = options.advertise_host or options.host
-    if advertiseHost in ("0.0.0.0", "::"):
-        raise SystemExit(
-            "When binding to a wildcard address, set --advertise-host to a reachable LAN IP"
-        )
-    await runTeam(
-        options.host,
-        options.port,
-        advertiseHost,
-        options.name,
-        options.strength,
-        options.minutes,
-        set(options.bootstrap),
-    )
+    await runTeam(options.host, set(options.bootstrap))
 
 
 if __name__ == "__main__":
