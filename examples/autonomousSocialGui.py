@@ -104,6 +104,8 @@ class AutonomousSocialDashboard:
         self._error:str | None = None
         self._configureWindow()
         self._createWidgets()
+        self._root.bind("<F11>", self._toggleFullscreen)
+        self._root.bind("<Escape>", self._exitFullscreen)
         self._root.protocol("WM_DELETE_WINDOW", self._close)
         self._refresh()
     def _configureWindow(self) -> None:
@@ -128,6 +130,20 @@ class AutonomousSocialDashboard:
             font=("TkDefaultFont", 10, "bold"),
         )
         style.map("Treeview", background=[("selected", "#1d4ed8")])
+
+    def _toggleFullscreen(self, event:tk.Event | None=None) -> str:
+        self._root.attributes(
+            "-fullscreen",
+            not bool(self._root.attributes("-fullscreen")),
+        )
+        return "break"
+
+    def _exitFullscreen(self, event:tk.Event | None=None) -> str | None:
+        if bool(self._root.attributes("-fullscreen")):
+            self._root.attributes("-fullscreen", False)
+            return "break"
+        return None
+
     def _createWidgets(self) -> None:
         header = tk.Frame(self._root, bg=BACKGROUND)
         header.pack(fill="x", padx=24, pady=(18, 14))
