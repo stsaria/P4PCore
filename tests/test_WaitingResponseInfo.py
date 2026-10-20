@@ -1,4 +1,4 @@
-from P4PCore.model.WaitingResponseInfo import WaitingResponseInfo
+from P4PCore.common.model.WaitingResponseInfo import WaitingResponseInfo
 
 
 class TestWaitingResponseInfo:

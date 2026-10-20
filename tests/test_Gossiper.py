@@ -4,10 +4,9 @@ import asyncio
 import os
 
 from P4PCore.P4PRunner import P4PRunner
-from P4PCore.impledPlugin.Gossiper import Gossiper
-from P4PCore.event.GossipRecvedEvent import GossipRecvedEvent
-from P4PCore.event.GossipDeletedByGcEvent import GossipDeletedByGcEvent
-from P4PCore.manager.Events import EventListener
+from P4PCore.plugin.base.gossiper.Gossiper import Gossiper
+from P4PCore.plugin.base.gossiper.event.GossipRecvedEvent import GossipRecvedEvent
+from P4PCore.common.manager.Events import EventListener
 
 PLUGIN_UUID = uuid4()
 GOSSIP_LENGTH = 10
@@ -15,9 +14,30 @@ MAX_GOSSIP_COUNT_PER_MESSAGE = 10
 
 class TestGossiper:
     @pytest.mark.asyncio
+    async def testEndStopsSyncTask(self):
+        runner = P4PRunner()
+        gossiper = Gossiper(
+            runner,
+            PLUGIN_UUID,
+            GOSSIP_LENGTH,
+            MAX_GOSSIP_COUNT_PER_MESSAGE,
+            lambda: None,
+            GossipRecvedEvent,
+        )
+        await runner.begin()
+        await gossiper.begin()
+
+        syncerTask = gossiper._syncerTask
+        assert syncerTask is not None
+        await gossiper.end()
+
+        assert syncerTask.done()
+        await runner.end()
+
+    @pytest.mark.asyncio
     async def testGossip(self):
-        runner = await P4PRunner.create()
-        gossiper = await Gossiper.create(runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, lambda:None, GossipRecvedEvent, GossipDeletedByGcEvent)
+        runner = P4PRunner()
+        gossiper = Gossiper(runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, lambda:None, GossipRecvedEvent)
 
         l = []
         gossipContent = os.urandom(GOSSIP_LENGTH)
@@ -27,17 +47,15 @@ class TestGossiper:
                 if e.gossipContent != gossipContent:
                     return
                 l.append(1)
-        await runner.eventsManager.registerListener(GossipRecvedHandler())
+        runner.eventsManager.registerListener(GossipRecvedHandler())
 
         await runner.begin()
         await gossiper.begin()
 
-        runner2 = await P4PRunner.create()
-        gossiper2 = await Gossiper.create(runner2, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, lambda:None, GossipRecvedEvent, GossipDeletedByGcEvent)
+        runner2 = P4PRunner()
+        gossiper2 = Gossiper(runner2, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, lambda:None, GossipRecvedEvent)
         await runner2.begin()
         await gossiper2.begin()
-
-        await asyncio.sleep(0)
 
         gossipContent = os.urandom(GOSSIP_LENGTH)
         
@@ -56,14 +74,14 @@ class TestGossiper:
         await runner2.end()
 
     @pytest.mark.asyncio
-    async def testGossipTTLAndGC(self):
-        runner = await P4PRunner.create()
+    async def testGossipTTL(self):
+        runner = P4PRunner()
 
         async def getAddrs():
             return []
-        gossiper = await Gossiper.create(
+        gossiper = Gossiper(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
-            GossipRecvedEvent, GossipDeletedByGcEvent,
+            GossipRecvedEvent,
             gossipTTLSeconds=0.2,
             minimumSavedDataCount=0
         )
@@ -71,29 +89,27 @@ class TestGossiper:
         await gossiper.begin()
 
         gossipContent = os.urandom(GOSSIP_LENGTH)
-        await gossiper.addGossip(gossipContent)
-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 1
+        gossiper.addGossip(gossipContent)
+        assert len(gossiper._gossipBytesToFoundTimesAndAddrs) == 1
 
         await asyncio.sleep(0.1)
-        await gossiper._gc()
-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 1
+        assert len(gossiper._gossipBytesToFoundTimesAndAddrs) == 1
 
         await asyncio.sleep(0.2)
-        await gossiper._gc()
-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 0
+        assert len(gossiper._gossipBytesToFoundTimesAndAddrs) == 0
 
         await gossiper.end()
         await runner.end()
 
     @pytest.mark.asyncio
-    async def testGossipTTLAndGCWithMinimumSavedDataCount(self):
-        runner = await P4PRunner.create()
+    async def testGossipTTLWithMinimumSavedDataCount(self):
+        runner = P4PRunner()
 
         async def getAddrs():
             return []
-        gossiper = await Gossiper.create(
+        gossiper = Gossiper(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
-            GossipRecvedEvent, GossipDeletedByGcEvent,
+            GossipRecvedEvent, 
             gossipTTLSeconds=0.2,
             minimumSavedDataCount=1
         )
@@ -101,19 +117,18 @@ class TestGossiper:
         await gossiper.begin()
 
         gossipContent = os.urandom(GOSSIP_LENGTH)
-        await gossiper.addGossip(gossipContent)
-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 1
+        gossiper.addGossip(gossipContent)
+        assert len(gossiper._gossipBytesToFoundTimesAndAddrs) == 1
 
         await asyncio.sleep(0.3)
-        await gossiper._gc()
-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 1
+        assert len(gossiper._gossipBytesToFoundTimesAndAddrs) == 1
 
         await gossiper.end()
         await runner.end()
 
     @pytest.mark.asyncio
     async def testSync(self):
-        runner = await P4PRunner.create()
+        runner = P4PRunner()
         l = []
         gossipContent = os.urandom(GOSSIP_LENGTH)
         class GossipRecvedHandler:
@@ -122,31 +137,31 @@ class TestGossiper:
                 if e.gossipContent != gossipContent:
                     return
                 l.append(1)
-        await runner.eventsManager.registerListener(GossipRecvedHandler())
-        runner2 = await P4PRunner.create()
+        runner.eventsManager.registerListener(GossipRecvedHandler())
+        runner2 = P4PRunner()
 
         await runner.begin()
 
         async def getAddrs():
             return [runner._net._protocolV4.transport.get_extra_info("sockname")]
 
-        gossiper = await Gossiper.create(
+        gossiper = Gossiper(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
-            GossipRecvedEvent, GossipDeletedByGcEvent,
+            GossipRecvedEvent, 
             syncIntervalSeconds=0.1, gossipTTLSeconds=10
         )
-        gossiper2 = await Gossiper.create(
+        gossiper2 = Gossiper(
             runner2, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
-            GossipRecvedEvent, GossipDeletedByGcEvent,
+            GossipRecvedEvent, 
             syncIntervalSeconds=1, gossipTTLSeconds=10
         )
         
         await runner2.begin()
         await gossiper2.begin()
         
-        await gossiper2.addGossip(gossipContent)
+        gossiper2.addGossip(gossipContent)
 
-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 0
+        assert len(gossiper._gossipBytesToFoundTimesAndAddrs) == 0
         assert not len(l)
 
         await asyncio.sleep(0.3)
@@ -158,8 +173,49 @@ class TestGossiper:
         await runner2.end()
 
     @pytest.mark.asyncio
+    async def testSyncSendsRequiredGossipWithoutStoredGossips(self):
+        runner = P4PRunner()
+        runner2 = P4PRunner()
+        gossipContent = os.urandom(GOSSIP_LENGTH)
+        recvedGossips = []
+
+        class GossipRecvedHandler:
+            @EventListener
+            async def onGossipRecved(self, event:GossipRecvedEvent):
+                recvedGossips.append(event.gossipContent)
+
+        runner2.eventsManager.registerListener(GossipRecvedHandler())
+        Gossiper(
+            runner2,
+            PLUGIN_UUID,
+            GOSSIP_LENGTH,
+            MAX_GOSSIP_COUNT_PER_MESSAGE,
+            lambda: asyncio.sleep(0, result=set()),
+            GossipRecvedEvent,
+        )
+
+        await runner.begin()
+        await runner2.begin()
+        addr = runner2.net._protocolV4.transport.get_extra_info("sockname")
+        gossiper = Gossiper(
+            runner,
+            PLUGIN_UUID,
+            GOSSIP_LENGTH,
+            MAX_GOSSIP_COUNT_PER_MESSAGE,
+            lambda: asyncio.sleep(0, result={addr}),
+            GossipRecvedEvent,
+            requiredGossip=gossipContent,
+        )
+        await gossiper.sync()
+        await asyncio.sleep(0.1)
+
+        assert recvedGossips == [gossipContent]
+        await runner.end()
+        await runner2.end()
+
+    @pytest.mark.asyncio
     async def testDontSyncByGricesMaximOfQuantityRule(self):
-        runner = await P4PRunner.create()
+        runner = P4PRunner()
         l = []
         gossipContent = os.urandom(GOSSIP_LENGTH)
         class GossipRecvedHandler:
@@ -168,31 +224,31 @@ class TestGossiper:
                 if e.gossipContent != gossipContent:
                     return
                 l.append(1)
-        await runner.eventsManager.registerListener(GossipRecvedHandler())
-        runner2 = await P4PRunner.create()
+        runner.eventsManager.registerListener(GossipRecvedHandler())
+        runner2 = P4PRunner()
 
         await runner.begin()
 
         async def getAddrs():
             return [runner._net._protocolV4.transport.get_extra_info("sockname")]
 
-        gossiper = await Gossiper.create(
+        gossiper = Gossiper(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
-            GossipRecvedEvent, GossipDeletedByGcEvent,
+            GossipRecvedEvent, 
             syncIntervalSeconds=0.1, gossipTTLSeconds=10
         )
-        gossiper2 = await Gossiper.create(
+        gossiper2 = Gossiper(
             runner2, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
-            GossipRecvedEvent, GossipDeletedByGcEvent,
+            GossipRecvedEvent, 
             syncIntervalSeconds=1, gossipTTLSeconds=10
         )
         
         await runner2.begin()
         await gossiper2.begin()
         
-        await gossiper2.addGossip(gossipContent, (await getAddrs())[0])
+        gossiper2.addGossip(gossipContent, (await getAddrs())[0])
 
-        assert await gossiper._gossipBytesToFoundTimesAndAddrs.len() == 0
+        assert len(gossiper._gossipBytesToFoundTimesAndAddrs) == 0
         assert not len(l)
 
         await asyncio.sleep(0.3)

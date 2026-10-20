@@ -9,7 +9,7 @@ description = "P4PCore is library for secure p2p communication."
 readme = "README.md"
 dependencies = [
     "cryptography",
-    "xxhash"
+    "cachetools"
 ]
 license = { file = "LICENSE" }
 requires-python = ">=3.13"

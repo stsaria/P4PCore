@@ -2,24 +2,16 @@ import logging
 from asyncio import Lock
 from logging import Handler, Logger
 
-from P4PCore.abstract.HasLoop import HasLoop
+from P4PCore.common.abstract.HasLoop import HasLoop
 from P4PCore.core.Net import Net
 from P4PCore.core.PingPongNet import PingPongNet
 from P4PCore.core.SecureNet import SecureNet
 from P4PCore.core.UserNet import UserNet
-from P4PCore.event.CalledBeginFunctionOfRunnerEvent import (
-    CalledBeginFunctionOfRunnerEvent,
-)
-from P4PCore.event.CalledEndFunctionOfRunnerEvent import CalledEndFunctionOfRunnerEvent
-from P4PCore.manager.Events import Events
-from P4PCore.manager.SimpleImpls import (
-    SimpleCannotDeleteAndOverwriteBiKVManager,
-    SimpleListManager,
-)
-from P4PCore.model.Ed25519Signer import Ed25519Signer
-from P4PCore.model.HashableEd25519PublicKey import HashableEd25519PublicKey
-from P4PCore.protocol.Protocol import PacketElementSize, PacketFlag
-from P4PCore.util.BytesCoverter import itob
+from P4PCore.common.manager.Events import Events
+from P4PCore.common.model.Ed25519Signer import Ed25519Signer
+from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicKey
+from P4PCore.core.protocol.Protocol import PacketElementSize, PacketFlag
+from P4PCore.common.util.BytesCoverter import itob
 
 
 class P4PRunner(HasLoop):
@@ -27,59 +19,57 @@ class P4PRunner(HasLoop):
     The Runner class is the main class of P4P. It manages the network, events, and other core functionalities.
 
     Basically, you most start you program with P4PRunner.begin() and end it with P4PRunner.end() (for saving resources and preventing errors).
-    So, if you want to set the timing of starting and ending, you should handle the event CalledBeginFunctionOfRunnerEvent and CalledEndFunctionOfRunnerEvent.
     """
-    _ed25519Signer:Ed25519Signer
-    _magic:bytes
-
-    _net:Net
-    _baseUserNet:UserNet
-    _secureNet:SecureNet
-    _pingPongNet:PingPongNet
-    _addrToEd25519PubKeys:SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey]
-    _events:Events
-    _loggerHandlers:SimpleListManager[Handler]
-    _started:bool
-    _startedLock:Lock
-
-    _userNet:UserNet
-    _secureUserNet:UserNet
-    @classmethod
-    async def create(cls, ed25519Signer:Ed25519Signer | None = None, magic:bytes=b"P4P5") -> "P4PRunner":
+    def __init__(
+        self,
+        ed25519Signer:Ed25519Signer | None = None,
+        loggerHandlers:list[Handler] = [],
+        magic:bytes=b"P4P6",
+        netV4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0),
+        netV6ListeningAddr:tuple[str, int] | None = None,
+        secureNetHelloingsMaxSize: int = 100,
+        secureNetHelloingsTimeoutSeconds: float = 4
+    ) -> "P4PRunner":
         """
         Create a new instance of P4PRunner.
         :param ed25519Signer: An optional Ed25519Signer instance. If not provided, a new instance will be created.
-        :param magic: A byte string representing the packet flag. Default is b"P4P5".
+        :param magic: A byte string representing the packet flag. Default is b"P4P6".
+        :param netV4ListeningAddr: The IPv4 address for listening packets at Net.
+        :param netV6ListeningAddr: The IPv6 address for listening packets at Net.
+        :param secureNetHelloingsMaxSize: Maximum size of the ongoing hello handshake cache at SecureNet (> 0).
+        :param secureNetHelloingsTimeoutSeconds: Timeout in seconds for the hello handshake cache TTL at SecureNet (> 0).
         :return: An instance of P4PRunner.
         """
 
-        inst = cls()
+        self._ed25519Signer:Ed25519Signer = ed25519Signer or Ed25519Signer()
+        self._magic:bytes = magic
 
-        inst._ed25519Signer = ed25519Signer or Ed25519Signer()
-        inst._magic = magic
+        self._events:Events = Events()
+        self._loggerHandlers:list[Handler] = loggerHandlers
 
-        inst._loggerHandlers = SimpleListManager()
-        inst._events = Events()
-        inst._net = Net(inst._events, inst._magic)
-        inst._baseUserNet = await UserNet.create(PacketElementSize.PACKET_FLAG, registry=inst._net)
-        inst._addrToEd25519PubKeys = SimpleCannotDeleteAndOverwriteBiKVManager()
-        inst._secureNet = await SecureNet.create(inst._net, inst._baseUserNet, inst._ed25519Signer, inst._addrToEd25519PubKeys, inst._events, inst._magic)
-        inst._pingPongNet = await PingPongNet.create(inst._net, inst._baseUserNet)
-        inst._loggerHandlers = SimpleListManager()
-        inst._started = False
-        inst._startedLock = Lock()
+        self._net:Net = Net(
+            self._events,
+            self._magic,
+            v4ListeningAddr=netV4ListeningAddr,
+            v6ListeningAddr=netV6ListeningAddr
+        )
+        self._baseUserNet:UserNet = UserNet(PacketElementSize.PACKET_FLAG, registry=self._net)
+        self._secureNet:SecureNet = SecureNet(
+            self._net,
+            self._baseUserNet,
+            self._ed25519Signer,
+            self.getLogger,
+            self._events,
+            self._magic,
+            secureNetHelloingsMaxSize,
+            secureNetHelloingsTimeoutSeconds
+        )
+        self._pingPongNet:PingPongNet = PingPongNet(self._net, self._baseUserNet)
 
-        inst._userNet = await UserNet.create(PacketElementSize.UUID)
-        await inst._baseUserNet.registerHandler(itob(PacketFlag.USER, PacketElementSize.PACKET_FLAG), inst._userNet)
-        inst._secureUserNet = await UserNet.create(PacketElementSize.UUID, registry=inst._secureNet)
-
-        return inst
-    @property
-    def addrToEd25519PubkeysManager(self) -> SimpleCannotDeleteAndOverwriteBiKVManager[tuple[str, int], HashableEd25519PublicKey]:
-        """
-        A manager that maps bidirectional between addr and ed25519 in this instance and its subordinates instances.
-        """
-        return self._addrToEd25519PubKeys
+        self._userNet:UserNet = UserNet(PacketElementSize.UUID)
+        self._baseUserNet.registerHandler(itob(PacketFlag.USER, PacketElementSize.PACKET_FLAG), self._userNet)
+        self._secureUserNet:UserNet = UserNet(PacketElementSize.UUID, registry=self._secureNet)
+        
     @property
     def eventsManager(self) -> Events:
         """
@@ -117,19 +107,13 @@ class P4PRunner(HasLoop):
         A net instance for checking if communication is possible in this instance and its subordinates instances.
         """
         return self._pingPongNet
-    @property
-    def loggerHandlersManager(self) -> SimpleListManager[Handler]:
-        """
-        A manager that stores handlers used by all logger in this instance and its subordinates instances.
-        """
-        return self._loggerHandlers
-    async def getLogger(self, name:str, level:int=logging.INFO) -> Logger:
+    def getLogger(self, name:str, level:int=logging.INFO) -> Logger:
         """
         Get a logger instance standard of this instnace.
         """
         logger = logging.getLogger(name)
         logger.setLevel(level)
-        logger.handlers = await self._loggerHandlers.getAll()
+        logger.handlers = self._loggerHandlers
         return logger
     @property
     def userNet(self) -> UserNet:
@@ -149,11 +133,9 @@ class P4PRunner(HasLoop):
         In most cases, this function should be called at first.
         """
         await self._net.begin()
-        await self._events.triggerEvent(CalledBeginFunctionOfRunnerEvent())
     async def end(self) -> None:
         """
         End the instance's all.
         In most cases, this function should be called at last.
         """
         await self._net.end()
-        await self._events.triggerEvent(CalledEndFunctionOfRunnerEvent())
