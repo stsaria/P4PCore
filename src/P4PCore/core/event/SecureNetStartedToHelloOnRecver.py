@@ -1,4 +1,5 @@
 from P4PCore.common.abstract.P4PEvent import P4PEvent
+from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 
 class SecureNetStartedToHelloOnRecver(P4PEvent):
     """
@@ -7,21 +8,28 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
     @staticmethod
     def isAsync() -> bool:
         return True
-    def __init__(self, addr:tuple[str, int]):
+    def __init__(self, addr:tuple[str, int], hashableEd25519PublicKey:HashableEd25519PublicKey):
         """
         Initialize the event with the node address.
         :param addr: The node address starting the hello exchange.
         """
         self._addr:tuple[str, int] = addr
+        self._hashableEd25519PublicKey:HashableEd25519PublicKey = hashableEd25519PublicKey
         self._helloVolume:int = 5
         self._encryptSeqWindowSize:int = 1
         self._timeoutSecOnHello:float = 5
     @property
     def addr(self) -> tuple[str, int]:
         """
-        The node address.
+        The node's addr.
         """
         return self._addr
+    @property
+    def hashableEd25519PublicKey(self) -> HashableEd25519PublicKey:
+        """
+        The node's Ed25519 public key (Not approved by challenge).
+        """
+        return self._hashableEd25519PublicKey
     @property
     def helloVolume(self) -> int:
         """

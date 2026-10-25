@@ -241,7 +241,7 @@ class SecureNet(NetHandler):
         if (pK := self._confirmedAddrsToEd25519PublicKeys.get(addr)) and pK == sendersPubKey:
             return
         try:
-            await self._events.triggerEvent(startedEvent := SecureNetStartedToHelloOnRecver(addr))
+            await self._events.triggerEvent(startedEvent := SecureNetStartedToHelloOnRecver(addr, pK))
         except Exception:
             self._helloings.pop(addr, None)
 
