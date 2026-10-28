@@ -50,6 +50,7 @@ class SecureNet(NetHandler):
         :param net: The underlying network instance to use for secure communication.
         :param userNet: The user network registry used to register this secure handler.
         :param ed25519Signer: The signer used to authenticate secure connections.
+        :param getLoggerFunc: The function used to create the secure network logger.
         :param events: The event manager used for secure network event notifications.
         :param magic: A byte string representing the packet flag.
         :param helloingsMaxSize: Maximum size of the ongoing hello handshake cache (> 0).
@@ -103,7 +104,7 @@ class SecureNet(NetHandler):
         """
         Establish a secure connection with the given node.
         :param nodeIdentify: The remote node identity to connect to.
-        :param timeoutSec: The timeout used while waiting for challenge responses.
+        :param timeoutSeconds: The timeout used while waiting for challenge responses.
         :param firstHelloAttempts: The number of first-hello attempts to make before failing (> 0 || == None).
         :param secondHelloVolume: The number of second-hello attempts to send once the first stage succeeds (> 0).
         :param encryptionSeqWindowSize: The sequence window size used by the X25519/AES encrypter (> 0).
@@ -213,6 +214,9 @@ class SecureNet(NetHandler):
 
     def bye(self, node:NodeIdentify | tuple[str, int]) -> bool:
         """
+        Disconnect from the specified node.
+        :param node: The remote node identity or network address to disconnect.
+        :return: True if a connection was removed; otherwise False.
         """
         addr = node.addr if isinstance(node, NodeIdentify) else node
         return not not self._encrypters.pop(addr, False)

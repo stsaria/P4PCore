@@ -12,6 +12,7 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
         """
         Initialize the event with the node address.
         :param addr: The node address starting the hello exchange.
+        :param hashableEd25519PublicKey: The Ed25519 public key of the node starting the hello exchange.
         """
         self._addr:tuple[str, int] = addr
         self._hashableEd25519PublicKey:HashableEd25519PublicKey = hashableEd25519PublicKey

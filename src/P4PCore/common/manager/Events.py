@@ -49,6 +49,7 @@ class Events:
 def EventListener(func:Callable) -> Callable:
     """
     Mark a method as a listener for a specific P4P event type.
+    :param func: The event listener function to mark.
     """
     setattr(func, "_isAEventListener", True)
     return func

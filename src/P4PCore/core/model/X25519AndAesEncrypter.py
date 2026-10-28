@@ -45,7 +45,6 @@ class X25519AndAesgcmEncrypter:
         Initialize the encrypter with hello-order and sequence-window settings.
         :param amIFirstNodeToHello: True when this node initiates the hello exchange, otherwise False.
         :param encryptSeqWindowSize: The size of the sequence window used to detect duplicate or out-of-order packets.
-        :param salt: Optional salt bytes for key derivation, or None to generate a random one.
         :param encryptSeqLimits: The maximum valid encryption sequence value.
         """
         self._amIFirstNodeToHello:bool = amIFirstNodeToHello
@@ -68,7 +67,6 @@ class X25519AndAesgcmEncrypter:
     def derive(self) -> None:
         """
         Derive the shared secret and AES key using the peer public key bytes.
-        :param otherPartyX25519PublicKeyBytes: The raw X25519 public key bytes of the peer.
         """
         if not self._otherPartyX25519PublicKey:
             return
