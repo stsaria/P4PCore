@@ -1,5 +1,4 @@
 import os
-from asyncio import Lock
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey, X25519PrivateKey
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -7,7 +6,6 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
 
 from P4PCore.core.protocol.Protocol import *
-from P4PCore.common.util.BytesCoverter import itob
 
 class EncrypterOverflowException(OverflowError):
     """
@@ -57,18 +55,25 @@ class X25519AndAesgcmEncrypter:
         
         self._sharedSecret:bytes | None = None
         self._aesKey:AESGCM | None = None
-        self._secretsLock:Lock = Lock()
-
         self._seq:int = 0
 
         self._otherPartySeq:int = 0
         self._otherPartySeqBitmap:int = 0
+        self._encryptSeqWindowMask:int = (1 << encryptSeqWindowSize) - 1
+        self._encryptNoncePrefix:bytes = bytes(
+            (0x01 if amIFirstNodeToHello else 0x00,)
+        ) + b"\x00" * (AESGCM_NONCE_SIZE - PacketElementSize.SEQ - 1)
+        self._decryptNoncePrefix:bytes = bytes(
+            (0x00 if amIFirstNodeToHello else 0x01,)
+        ) + b"\x00" * (AESGCM_NONCE_SIZE - PacketElementSize.SEQ - 1)
+        self._myX25519PublicKeyBytes:bytes = self._myX25519PrivateKey.public_key().public_bytes_raw()
+        self._otherPartyX25519PublicKeyBytes:bytes | None = None
     
     def derive(self) -> None:
         """
         Derive the shared secret and AES key using the peer public key bytes.
         """
-        if not self._otherPartyX25519PublicKey:
+        if self._otherPartyX25519PublicKey is None:
             return
 
         self._sharedSecret = HKDF(
@@ -99,11 +104,8 @@ class X25519AndAesgcmEncrypter:
         if self._seq > self._encryptSeqLimits:
             raise EncrypterOverflowException(self._seq, data)
         
-        nonceBA = bytearray(AESGCM_NONCE_SIZE)
-        nonceBA[0] = 0x01 if self._amIFirstNodeToHello else 0x00
-        nonceBA[AESGCM_NONCE_SIZE-PacketElementSize.SEQ:] = itob(self._seq, PacketElementSize.SEQ)
-
-        return self._seq, self._aesKey.encrypt(bytes(nonceBA), data, None)
+        nonce = self._encryptNoncePrefix + self._seq.to_bytes(PacketElementSize.SEQ, "big")
+        return self._seq, self._aesKey.encrypt(nonce, data, None)
     
     def decrypt(self, encryptedData:bytes, seq:int) -> bytes | None:
         """
@@ -115,18 +117,16 @@ class X25519AndAesgcmEncrypter:
         if self._aesKey is None:
             raise Exception("Shared secret and AES key are not derived yet.")
         
-        nonceBA = bytearray(AESGCM_NONCE_SIZE)
-        nonceBA[0] = 0x00 if self._amIFirstNodeToHello else 0x01
-        nonceBA[AESGCM_NONCE_SIZE-PacketElementSize.SEQ:] = itob(seq, PacketElementSize.SEQ)
+        nonce = self._decryptNoncePrefix + seq.to_bytes(PacketElementSize.SEQ, "big")
         
         try:
-            data = self._aesKey.decrypt(bytes(nonceBA), encryptedData, None)
+            data = self._aesKey.decrypt(nonce, encryptedData, None)
         except InvalidTag:
             return None
         
         if seq > self._otherPartySeq:
             diff = seq - self._otherPartySeq
-            self._otherPartySeqBitmap = (self._otherPartySeqBitmap << diff) & ((1 << self._encryptSeqWindowSize)-1)
+            self._otherPartySeqBitmap = (self._otherPartySeqBitmap << diff) & self._encryptSeqWindowMask
             self._otherPartySeqBitmap |= 1
             self._otherPartySeq = seq
             if seq > self._encryptSeqLimits:
@@ -156,13 +156,14 @@ class X25519AndAesgcmEncrypter:
         """
         The raw public X25519 key bytes.
         """
-        return self._myX25519PrivateKey.public_key().public_bytes_raw()
+        return self._myX25519PublicKeyBytes
     @property
     def otherPartyX25519PublicKeyBytes(self) -> bytes | None:
         """
         The other party x25519 public key for deriving aes key.
         """
-        return self._otherPartyX25519PublicKey.public_bytes_raw()
+        return self._otherPartyX25519PublicKeyBytes
     @otherPartyX25519PublicKeyBytes.setter
     def otherPartyX25519PublicKeyBytes(self, otherPartyX25519PublicKeyBytes:bytes) -> None:
         self._otherPartyX25519PublicKey = X25519PublicKey.from_public_bytes(otherPartyX25519PublicKeyBytes)
+        self._otherPartyX25519PublicKeyBytes = otherPartyX25519PublicKeyBytes
