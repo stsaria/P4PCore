@@ -66,8 +66,9 @@ class SecureNet(NetHandler):
 
         self._events:Events = events
         self._magic:bytes = magic
-        self._mainDataPacketHeader:bytes = bytes(
-            (PacketFlag.SECURE, ModeFlag.MAIN_DATA)
+        self._mainDataPacketHeader:bytes = (
+            itob(PacketFlag.SECURE, SecurePacketElementSize.PACKET_FLAG)
+            +itob(ModeFlag.MAIN_DATA, SecurePacketElementSize.MODE_FLAG)
         )
 
         if helloingsMaxSize <= 0:
