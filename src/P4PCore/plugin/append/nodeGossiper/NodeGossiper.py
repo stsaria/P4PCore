@@ -5,7 +5,7 @@ import uuid
 from uuid import UUID
 from cachetools import TTLCache
 
-from P4PCore.P4PRunner import Logger, P4PRunner
+from P4PCore.P4PRunner import P4PRunner
 from P4PCore.plugin.base.gossiper.Gossiper import Gossiper
 from P4PCore.core.protocol.Protocol import SecurePacketElementSize
 from P4PCore.common.manager.Events import EventListener
@@ -14,7 +14,7 @@ from P4PCore.common.util.BytesCoverter import *
 from P4PCore.plugin.append.nodeGossiper.event.NodeGossipRecvedEvent import NodeGossipRecvedEvent
 from P4PCore.plugin.append.nodeGossiper.protocol.Protocol import *
 from P4PCore.plugin.append.nodeGossiper.util.NodeIdentifyConverter import *
-
+from P4PCore.plugin.append.nodeGossiper.event.NodeAddedToGossiperEvent import NodeAddedToGossiperEvent
 
 BASE_PLUGIN_UUID_HEX = "27416bf84dbd4a448cc12adf238aa5f6"
 PROTOCOL_VERSION = "1"
@@ -40,9 +40,9 @@ class NodeGossiper:
         syncIntervalSeconds:float=5,
         maximumNodesCount:int=100,
         minimumNodesCount:int=20,
-        pingTimeoutSeconds:float=1.0,
         aliveTimeSeconds:float=30.0,
         aliveStorageNodesCount:int=1000,
+        pingReusePreviousResult:bool=True,
         bootstrapNodes:set[tuple[str, int]] | None=None
     ) -> "NodeGossiper":
         """
@@ -58,15 +58,13 @@ class NodeGossiper:
             attempts in seconds (>= 0).
         :param maximumNodesCount: The maximum number of nodes to store (> 0).
         :param minimumNodesCount: The minimum number of nodes to store (>= 0).
-        :param pingTimeoutSeconds: The timeout for pinging nodes in seconds (> 0).
         :param aliveTimeSeconds: The time a node is considered alive in seconds (> 0).
         :param aliveStorageNodesCount: The maximum number of alive nodes to store (> 0).
+        :param pingReusePreviousResult: Whether to reuse previous alive result if available.
         :param bootstrapNodes: Initial peer addresses to contact for node discovery.
         :return: An initialized NodeGossiper instance.
         """
-        if pingTimeoutSeconds <= 0:
-            raise ValueError("pingTimeoutSeconds > 0")
-        elif aliveTimeSeconds <= 0:
+        if aliveTimeSeconds <= 0:
             raise ValueError("aliveTimeSeconds > 0")
         elif aliveStorageNodesCount <= 0:
             raise ValueError("aliveStorageNodesCount > 0")
@@ -95,17 +93,14 @@ class NodeGossiper:
             )
         )
         self._logger = self._runner.getLogger("NodeGossiper")
-        self._alivedNodesAndFoundTimes:TTLCache[tuple[str, int], None] = TTLCache(
-            aliveStorageNodesCount,
-            aliveTimeSeconds
-        )
-        self._pingTimeoutSeconds:int = pingTimeoutSeconds
         self._addNodesQueue:set[NodeIdentify] = set()
 
         self._endEvent:Event = Event()
         self._dataReadyEvent:Event = Event()
 
         self._checkAndAddNodeLoopTask:Task | None = None
+
+        self._pingReusePreviousResult:bool = pingReusePreviousResult
 
         self._runner.eventsManager.registerListener(self)
     
@@ -173,12 +168,6 @@ class NodeGossiper:
                 hashableEd25519PublicKey=recvedNode.hashableEd25519PublicKey
             )
         
-        if recvedNode.addr in self._alivedNodesAndFoundTimes:
-            self.addNode(recvedNode)
-            self._logger.debug(
-                "Adding nodeId:%s",
-                nodeIdentifyToBytes(recvedNode).hex()
-            )
         self._addNodesQueue.add(recvedNode)
         self._dataReadyEvent.set()
         self._logger.debug(
@@ -186,6 +175,11 @@ class NodeGossiper:
             nodeIdentifyToBytes(recvedNode).hex()
         )
 
+    def _pingCallbackForAddNode(self, nodeIdentify:NodeIdentify) -> None:
+        if self.addNode(nodeIdentify):
+            self._runner.eventsManager.triggerEventSync(
+                NodeAddedToGossiperEvent(nodeIdentify)
+            )
     async def _checkAndAddNodeLoop(self) -> None:
         while not self._endEvent.is_set():
             if not self._addNodesQueue:
@@ -196,13 +190,13 @@ class NodeGossiper:
                 continue
             nodeIdentify = self._addNodesQueue.pop()
             addr = nodeIdentify.addr
-            if addr in self._alivedNodesAndFoundTimes:
-                continue
-            if not (await self._runner.pingPongNet.ping(addr, self._pingTimeoutSeconds)):
-                continue
-            self._alivedNodesAndFoundTimes[addr] = None
-            self.addNode(nodeIdentify)
+            self._runner.pingPongNet.pingWithCallback(
+                addr,
+                self._pingReusePreviousResult,
 
+                self._pingCallbackForAddNode,
+                nodeIdentify
+            )
     async def begin(self) -> None:
         """
         Start the gossiper sync task and background node checking loop.

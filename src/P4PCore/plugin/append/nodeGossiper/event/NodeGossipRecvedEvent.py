@@ -6,9 +6,6 @@ class NodeGossipRecvedEvent(GossipRecvedEvent):
     @property
     def recvedNode(self) -> NodeIdentify | None:
         """
-        Returns the identifying information of the received node.
-
-        The gossip payload is converted into a NodeIdentify instance so the
-        details of the received node can be retrieved.
+        The identifying information of the received node.
         """
         return bytesToNodeIdentify(self._gossipContent)
