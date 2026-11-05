@@ -27,8 +27,12 @@ class P4PRunner(HasLoop):
         magic:bytes=b"P4P6",
         netV4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0),
         netV6ListeningAddr:tuple[str, int] | None = None,
-        secureNetHelloingsMaxSize: int = 100,
-        secureNetHelloingsTimeoutSeconds: float = 4
+        secureNetHelloingsMaxSize:int = 100,
+        secureNetHelloingsTimeoutSeconds:float = 4,
+        pingPongNetPingAliveTimeSeconds:float = 5.0,
+        pingPongNetPingResponsesStorageMaxSize:int = 1000,
+        pingPongNetReuseAliveTimeSeconds:float = 30.0,
+        pingPongNetAliveStorageNodesCount:int = 1000
     ) -> "P4PRunner":
         """
         Create a new instance of P4PRunner.
@@ -39,6 +43,11 @@ class P4PRunner(HasLoop):
         :param netV6ListeningAddr: The IPv6 address for listening packets at Net.
         :param secureNetHelloingsMaxSize: Maximum size of the ongoing hello handshake cache at SecureNet (> 0).
         :param secureNetHelloingsTimeoutSeconds: Timeout in seconds for the hello handshake cache TTL at SecureNet (> 0).
+        :param pingPongNetPingAliveTimeSeconds: The time in seconds to wait for ping responses at PingPongNet (> 0).
+        :param pingPongNetPingResponsesStorageMaxSize: The maximum size of the waiting responses cache at PingPongNet (> 0).
+        :param pingPongNetReuseAliveTimeSeconds: The TTL in seconds for reusing alive node results at PingPongNet (> 0).
+        :param pingPongNetAliveStorageNodesCount: The maximum number of stored alive nodes at PingPongNet (> 0).
+        :raises ValueError: If any of the parameters are invalid (e.g., non-positive values where positive values are required).
         :return: An instance of P4PRunner.
         """
 
@@ -65,7 +74,14 @@ class P4PRunner(HasLoop):
             secureNetHelloingsMaxSize,
             secureNetHelloingsTimeoutSeconds
         )
-        self._pingPongNet:PingPongNet = PingPongNet(self._net, self._baseUserNet)
+        self._pingPongNet:PingPongNet = PingPongNet(
+            self._net,
+            self._baseUserNet,
+            pingAliveTimeSeconds=pingPongNetPingAliveTimeSeconds,
+            pingResponsesStorageMaxSize=pingPongNetPingResponsesStorageMaxSize,
+            reuseAliveTimeSeconds=pingPongNetReuseAliveTimeSeconds,
+            aliveStorageNodesCount=pingPongNetAliveStorageNodesCount
+        )
 
         self._userNet:UserNet = UserNet(PacketElementSize.UUID)
         self._baseUserNet.registerHandler(itob(PacketFlag.USER, PacketElementSize.PACKET_FLAG), self._userNet)
