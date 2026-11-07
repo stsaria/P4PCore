@@ -1,6 +1,5 @@
 from P4PCore.core.abstract.NetHandler import NetHandler
 from P4PCore.core.abstract.NetHandlerRegistry import NetHandlerRegistry
-from P4PCore.common.util import BytesSplitter
 
 class UserNet(NetHandler):
     """
@@ -47,7 +46,8 @@ class UserNet(NetHandler):
         if len(data) < self._flagSize:
             return
 
-        flag, payload = BytesSplitter.split(data, self._flagSize, includeRest=True)
+        flag = data[:self._flagSize]
+        payload = data[self._flagSize:]
         
         if handler := self._handlers.get(flag):
             await handler.handle(payload, addr)

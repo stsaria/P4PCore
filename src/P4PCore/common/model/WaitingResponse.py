@@ -1,10 +1,13 @@
 import asyncio
 from asyncio import AbstractEventLoop, Future, InvalidStateError
 from asyncio.exceptions import CancelledError, TimeoutError
-from typing import TypeVar
+from collections.abc import Callable
+from typing import Any, ParamSpec, TypeVar
 
 from P4PCore.common.model.Response import Response
 from P4PCore.common.model.WaitingResponseInfo import WaitingResponseInfo
+
+A = ParamSpec("A")
 
 OI = TypeVar("OI")
 RV = TypeVar("RV")
@@ -38,18 +41,23 @@ class WaitingResponse[OI, RV]:
             return False
     def newFuture(self) -> None:
         """
+        Remake a waiting future.
         """
         self._responseFuture = self._loop.create_future()
-    async def waitAndGet(self, timeoutSeconds:float | None=None) -> Response[RV] | None:
+    async def waitAndGet(self, timeoutSeconds:float | None = None) -> Response[RV] | None:
         """
         Wait for the response to arrive until the timeout expires.
-        :param timeoutSec: The maximum time to wait in seconds, or None for no timeout.
+        :param timeoutSeconds: The maximum time to wait in seconds, or None for no timeout.
         :return: The response value if it arrives in time, otherwise None.
         """
         try:
             return await asyncio.wait_for(self._responseFuture, timeout=timeoutSeconds)
         except (TimeoutError, CancelledError):
             return None
+    def setCallback(self, callback:Callable[A, Any], *args:A.args) -> None:
+        def cb(_):
+            callback(*args)
+        self._responseFuture.add_done_callback(cb)
     @property
     def waitingResponseInfo(self) -> WaitingResponseInfo:
         """

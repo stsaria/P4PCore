@@ -44,7 +44,6 @@ class Gossiper(NetHandler, HasLoop):
         :param maximumGossipCountPerMessage: The maximum number of gossip messages to send in one message.
         :param getAddrsFunc: A callable that returns a set of node addrs.
         :param gossipRecvedEventClass: The class to use for the GossipRecvedEvent.
-        :param gossipDeletedByGcEventClass: The class to use for the GossipDeletedByGcEvent.
         :param gossipTTLSeconds: The time-to-live for each gossip message in seconds (> 0).
         :param syncNodeCountPerOneTime: The number of nodes to synchronize with in one time (> 0).
         :param syncIntervalSeconds: The interval between synchronization attempts in seconds (>= 0).
