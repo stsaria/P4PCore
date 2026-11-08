@@ -46,6 +46,13 @@ class TestStob:
         result = stob("hello world", 5, "utf-8")
         assert result == b"hello"
 
+    def testMultibyteStringDoesNotProduceInvalidEncoding(self):
+        result = stob("あ", 3, "utf-8")
+        assert result == "あ".encode("utf-8")
+
+    def testZeroSize(self):
+        assert stob("hello", 0, "utf-8") == b""
+
     def testEmptyString(self):
         result = stob("", 5, "utf-8")
         assert result == b"\x00\x00\x00\x00\x00"

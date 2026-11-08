@@ -53,7 +53,11 @@ class Gossiper(NetHandler, HasLoop):
         :return: An instance of the Gossiper class.
         """
 
-        if gossipTTLSeconds <= 0:
+        if gossipLength <= 0:
+            raise ValueError("gossipLength > 0")
+        elif maximumGossipCountPerMessage <= 0:
+            raise ValueError("maximumGossipCountPerMessage > 0")
+        elif gossipTTLSeconds <= 0:
             raise ValueError("gossipTTLSeconds > 0")
         elif syncNodeCountPerOneTime <= 0:
             raise ValueError("syncNodeCountPerOneTime > 0")
