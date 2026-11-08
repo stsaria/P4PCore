@@ -40,7 +40,7 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
     @helloVolume.setter
     def helloVolume(self, volume:int) -> None:
         if volume <= 0:
-            return ValueError("helloVolume > 0")
+            raise ValueError("helloVolume > 0")
         self._helloVolume = volume
     @property
     def encryptSeqWindowSize(self) -> int:

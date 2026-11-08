@@ -158,6 +158,8 @@ class PingPongNet(NetHandler):
         """
         Begin the loop for ping.
         """
+        self._endEvent.clear()
+        self._pingDataReadyEvent.clear()
         self._pingLoopTask = asyncio.create_task(self._pingLoop())
 
     async def end(self) -> None:

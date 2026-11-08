@@ -23,7 +23,7 @@ class P4PRunner(HasLoop):
     def __init__(
         self,
         ed25519Signer:Ed25519Signer | None = None,
-        loggerHandlers:list[Handler] = [],
+        loggerHandlers:list[Handler] | None = None,
         magic:bytes=b"P4P6",
         netV4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0),
         netV6ListeningAddr:tuple[str, int] | None = None,
@@ -55,7 +55,7 @@ class P4PRunner(HasLoop):
         self._magic:bytes = magic
 
         self._events:Events = Events()
-        self._loggerHandlers:list[Handler] = loggerHandlers
+        self._loggerHandlers:list[Handler] = loggerHandlers or []
 
         self._net:Net = Net(
             self._events,

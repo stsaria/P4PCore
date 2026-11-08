@@ -143,15 +143,16 @@ class Net(NetHandlerRegistry, HasLoop):
             data, addr, recvedTime = await self._recvedQueue.get()
             try:
                 for handler in self._handlers:
-                    await handler.handle(data, addr)
-            except Exception as e:
-                await self._events.triggerEvent(
-                    NetOccurredUnhandledExceptionEvent(
-                        e,
-                        data,
-                        addr,
-                        recvedTime
-                    )
-                )
+                    try:
+                        await handler.handle(data, addr)
+                    except Exception as e:
+                        await self._events.triggerEvent(
+                            NetOccurredUnhandledExceptionEvent(
+                                e,
+                                data,
+                                addr,
+                                recvedTime
+                            )
+                        )
             finally:
                 self._recvedQueue.task_done()

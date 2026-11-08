@@ -56,7 +56,10 @@ class WaitingResponse[OI, RV]:
             return None
     def setCallback(self, callback:Callable[A, Any], *args:A.args) -> None:
         def cb(_):
-            callback(*args)
+            try:
+                callback(*args)
+            except InvalidStateError:
+                pass
         self._responseFuture.add_done_callback(cb)
     @property
     def waitingResponseInfo(self) -> WaitingResponseInfo:
