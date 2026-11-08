@@ -12,6 +12,7 @@ class WaitingResponseInfo:
         """
         Initialize the waiting response metadata.
         :param addr: The network address associated with the waiting response.
+        :param uniqueBytesSize: The number of random bytes to use for the response identifier.
         """
         self._addr:tuple[str, int] = addr
         

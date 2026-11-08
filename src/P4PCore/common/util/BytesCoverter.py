@@ -27,16 +27,24 @@ def stob(s:str, size:int, encoding:str=STR_ENCODING) -> bytes:
     """
     Convert a string to fixed-size bytes.
     :param s: The string to encode.
-    :param size: The target size in bytes; the result is padded with null bytes when needed.
+    :param size: The target size in bytes; the result is padded with null bytes when needed (>= 0).
     :param encoding: The character encoding used for conversion.
     :return: The encoded bytes padded to the requested size.
     """
-    b = bytearray()
-    for c in s:
-        if size and len(b) + len(c.encode(encoding)) > size:
-            break
-        b.append(c.encode(encoding, errors="ignore")[0])
-    return bytes(b)+(b"\x00"*(size-len(b)))
+    if size < 0:
+        raise ValueError("size >= 0")
+    if size == 0:
+        return b""
+    encoded = s.encode(encoding)
+    if size:
+        encoded = encoded[:size]
+        while encoded:
+            try:
+                encoded.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                encoded = encoded[:-1]
+    return encoded + (b"\x00" * (size - len(encoded)))
 
 def btos(b:bytes, encoding:str=STR_ENCODING) -> str:
     """

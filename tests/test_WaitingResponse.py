@@ -60,6 +60,19 @@ class TestWaitingResponse:
         assert result is None
 
     @pytest.mark.asyncio
+    async def testCallbackIgnoresCancelledCallbackFuture(self):
+        info = WaitingResponseInfo(("127.0.0.1", 8080))
+        waiting = WaitingResponse[str, str](info)
+        callbackFuture = asyncio.get_running_loop().create_future()
+        waiting.setCallback(callbackFuture.set_result, "result")
+        callbackFuture.cancel()
+
+        waiting.setResponse(Response("response"))
+        await asyncio.sleep(0)
+
+        assert callbackFuture.cancelled()
+
+    @pytest.mark.asyncio
     async def testBool(self):
         info = WaitingResponseInfo(("127.0.0.1", 8080))
         waiting = WaitingResponse[str, str](info)

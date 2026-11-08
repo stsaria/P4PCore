@@ -46,9 +46,24 @@ class Events:
             for callback in callbacks:
                 callback(event)
 
+    def triggerEventSync(self, event:P4PEvent) -> None:
+        """
+        Trigger an event synchronously. All the listeners registered to listen to this type of event will be called.
+        :param event: The event instance to trigger.
+        """
+        callbacks = self._events.get(type(event))
+        if not callbacks:
+            return
+        elif event.isAsync():
+            raise Exception("Cannot trigger async event synchronously.")
+        
+        for callback in callbacks:
+            callback(event)
+
 def EventListener(func:Callable) -> Callable:
     """
     Mark a method as a listener for a specific P4P event type.
+    :param func: The event listener function to mark.
     """
     setattr(func, "_isAEventListener", True)
     return func

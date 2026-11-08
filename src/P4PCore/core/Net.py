@@ -1,6 +1,6 @@
 from __future__ import annotations
 import asyncio
-from asyncio import DatagramTransport, DatagramProtocol, Semaphore
+from asyncio import DatagramTransport, DatagramProtocol, Queue, QueueFull
 
 from P4PCore.common.abstract.HasLoop import HasLoop
 from P4PCore.core.abstract.NetHandler import NetHandler
@@ -16,20 +16,18 @@ class _NetServerProtocol(DatagramProtocol):
         self.transport:DatagramTransport | None = None
     def connection_made(self, transport:DatagramTransport):
         self.transport = transport
-    async def _arecved(self, data:bytes, addr:tuple[str, int], recvedTime:float) -> None:
-        async with self._net._sem:
-            try:
-                for handler in self._net._handlers:
-                    await handler.handle(data, addr)
-            except Exception as e:
-                await self._net._events.triggerEvent(NetOccurredUnhandledExceptionEvent(e, data, addr, recvedTime))
     def datagram_received(self, data:bytes, addr:tuple[str, int]) -> None:
         recvedTime = asyncio.get_running_loop().time()
         if len(data) > SOCKET_BUFFER:
             return
         elif data[:len(self._magic)] != self._magic:
             return
-        asyncio.create_task(self._arecved(data[len(self._magic):], addr, recvedTime))
+        try:
+            self._net._recvedQueue.put_nowait(
+                (data[len(self._magic):], addr, recvedTime)
+            )
+        except QueueFull:
+            return
 
 class Net(NetHandlerRegistry, HasLoop):
     """
@@ -60,6 +58,8 @@ class Net(NetHandlerRegistry, HasLoop):
         self._v4ListeningAddr:tuple[str, int] | None = v4ListeningAddr
         self._v6ListeningAddr:tuple[str, int] | None = v6ListeningAddr
         self._semaphoreLimits:int = 100
+        self._recvedQueue:Queue[tuple[bytes, tuple[str, int], float]] = Queue()
+        self._recvedWorkerTasks:list[asyncio.Task] = []
     @property
     def semaphoreLimits(self) -> int:
         """The maximum concurrency allowed for packet handling."""
@@ -107,7 +107,11 @@ class Net(NetHandlerRegistry, HasLoop):
         Start the network server on the configured IPv4 and IPv6 listening addresses.
         """
         loop = asyncio.get_running_loop()
-        self._sem = Semaphore(self._semaphoreLimits)
+        self._recvedQueue = Queue(self._semaphoreLimits * 2)
+        self._recvedWorkerTasks = [
+            asyncio.create_task(self._recvedWorker())
+            for _ in range(self._semaphoreLimits)
+        ]
 
         if self._v4ListeningAddr:
             _, self._protocolV4 = await loop.create_datagram_endpoint(
@@ -128,5 +132,27 @@ class Net(NetHandlerRegistry, HasLoop):
             v4T.close()
         if (v6 := self._protocolV6) and (v6T := v6.transport):
             v6T.close()
-        self._semaphoreLimits = 0
+        for task in self._recvedWorkerTasks:
+            task.cancel()
+        if self._recvedWorkerTasks:
+            await asyncio.gather(*self._recvedWorkerTasks, return_exceptions=True)
+        self._recvedWorkerTasks.clear()
 
+    async def _recvedWorker(self) -> None:
+        while True:
+            data, addr, recvedTime = await self._recvedQueue.get()
+            try:
+                for handler in self._handlers:
+                    try:
+                        await handler.handle(data, addr)
+                    except Exception as e:
+                        await self._events.triggerEvent(
+                            NetOccurredUnhandledExceptionEvent(
+                                e,
+                                data,
+                                addr,
+                                recvedTime
+                            )
+                        )
+            finally:
+                self._recvedQueue.task_done()

@@ -23,21 +23,31 @@ class P4PRunner(HasLoop):
     def __init__(
         self,
         ed25519Signer:Ed25519Signer | None = None,
-        loggerHandlers:list[Handler] = [],
+        loggerHandlers:list[Handler] | None = None,
         magic:bytes=b"P4P6",
         netV4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0),
         netV6ListeningAddr:tuple[str, int] | None = None,
-        secureNetHelloingsMaxSize: int = 100,
-        secureNetHelloingsTimeoutSeconds: float = 4
+        secureNetHelloingsMaxSize:int = 100,
+        secureNetHelloingsTimeoutSeconds:float = 4,
+        pingPongNetPingAliveTimeSeconds:float = 5.0,
+        pingPongNetPingResponsesStorageMaxSize:int = 1000,
+        pingPongNetReuseAliveTimeSeconds:float = 30.0,
+        pingPongNetAliveStorageNodesCount:int = 1000
     ) -> "P4PRunner":
         """
         Create a new instance of P4PRunner.
         :param ed25519Signer: An optional Ed25519Signer instance. If not provided, a new instance will be created.
+        :param loggerHandlers: The logging handlers to assign to loggers created by this runner.
         :param magic: A byte string representing the packet flag. Default is b"P4P6".
         :param netV4ListeningAddr: The IPv4 address for listening packets at Net.
         :param netV6ListeningAddr: The IPv6 address for listening packets at Net.
         :param secureNetHelloingsMaxSize: Maximum size of the ongoing hello handshake cache at SecureNet (> 0).
         :param secureNetHelloingsTimeoutSeconds: Timeout in seconds for the hello handshake cache TTL at SecureNet (> 0).
+        :param pingPongNetPingAliveTimeSeconds: The time in seconds to wait for ping responses at PingPongNet (> 0).
+        :param pingPongNetPingResponsesStorageMaxSize: The maximum size of the waiting responses cache at PingPongNet (> 0).
+        :param pingPongNetReuseAliveTimeSeconds: The TTL in seconds for reusing alive node results at PingPongNet (> 0).
+        :param pingPongNetAliveStorageNodesCount: The maximum number of stored alive nodes at PingPongNet (> 0).
+        :raises ValueError: If any of the parameters are invalid (e.g., non-positive values where positive values are required).
         :return: An instance of P4PRunner.
         """
 
@@ -45,7 +55,7 @@ class P4PRunner(HasLoop):
         self._magic:bytes = magic
 
         self._events:Events = Events()
-        self._loggerHandlers:list[Handler] = loggerHandlers
+        self._loggerHandlers:list[Handler] = loggerHandlers or []
 
         self._net:Net = Net(
             self._events,
@@ -64,12 +74,24 @@ class P4PRunner(HasLoop):
             secureNetHelloingsMaxSize,
             secureNetHelloingsTimeoutSeconds
         )
-        self._pingPongNet:PingPongNet = PingPongNet(self._net, self._baseUserNet)
+        self._pingPongNet:PingPongNet = PingPongNet(
+            self._net,
+            self._baseUserNet,
+            pingAliveTimeSeconds=pingPongNetPingAliveTimeSeconds,
+            pingResponsesStorageMaxSize=pingPongNetPingResponsesStorageMaxSize,
+            reuseAliveTimeSeconds=pingPongNetReuseAliveTimeSeconds,
+            aliveStorageNodesCount=pingPongNetAliveStorageNodesCount
+        )
 
         self._userNet:UserNet = UserNet(PacketElementSize.UUID)
         self._baseUserNet.registerHandler(itob(PacketFlag.USER, PacketElementSize.PACKET_FLAG), self._userNet)
         self._secureUserNet:UserNet = UserNet(PacketElementSize.UUID, registry=self._secureNet)
-        
+    @property
+    def magic(self) -> bytes:
+        """
+        A byte string representing the packet flag.
+        """
+        return self._magic
     @property
     def eventsManager(self) -> Events:
         """
@@ -110,6 +132,8 @@ class P4PRunner(HasLoop):
     def getLogger(self, name:str, level:int=logging.INFO) -> Logger:
         """
         Get a logger instance standard of this instnace.
+        :param name: The name of the logger to create or retrieve.
+        :param level: The logging level to configure for the logger.
         """
         logger = logging.getLogger(name)
         logger.setLevel(level)
@@ -133,9 +157,11 @@ class P4PRunner(HasLoop):
         In most cases, this function should be called at first.
         """
         await self._net.begin()
+        await self._pingPongNet.begin()
     async def end(self) -> None:
         """
         End the instance's all.
         In most cases, this function should be called at last.
         """
+        await self._pingPongNet.end()
         await self._net.end()
