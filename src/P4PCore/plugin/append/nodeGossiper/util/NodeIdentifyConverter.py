@@ -58,7 +58,7 @@ def bytesToNodeIdentify(nodeIdentifyB:bytes) -> NodeIdentify | None:
     :return: A NodeIdentify object, or None if the address family is invalid.
     """
 
-    addrFamillyB, ipB, portB, pubKeyB = BytesSplitter.split(
+    addrFamilyB, ipB, portB, pubKeyB = BytesSplitter.split(
         nodeIdentifyB,
         NodeGossiperPacketElementSize.IP_ADDR_FAMILY,
         NodeGossiperPacketElementSize.IP,
@@ -66,7 +66,7 @@ def bytesToNodeIdentify(nodeIdentifyB:bytes) -> NodeIdentify | None:
         NodeGossiperPacketElementSize.ED25519_PUBLIC_KEY
     )
 
-    if not int.from_bytes(addrFamillyB) + int.from_bytes(ipB) + int.from_bytes(portB):
+    if not int.from_bytes(addrFamilyB) + int.from_bytes(ipB) + int.from_bytes(portB):
         # sender's info
         return NodeIdentify(
             ip="",
@@ -74,7 +74,7 @@ def bytesToNodeIdentify(nodeIdentifyB:bytes) -> NodeIdentify | None:
             hashableEd25519PublicKey=HashableEd25519PublicKey(pubKeyB)
         )
 
-    addrFamilly = btoi(addrFamillyB)
+    addrFamilly = btoi(addrFamilyB)
 
     if addrFamilly == AF_INET:
         ipSize = NodeGossiperPacketElementSize.IPV4

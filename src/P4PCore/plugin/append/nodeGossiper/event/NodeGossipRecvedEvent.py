@@ -3,6 +3,9 @@ from P4PCore.common.model.NodeIdentify import NodeIdentify
 from P4PCore.plugin.append.nodeGossiper.util.NodeIdentifyConverter import bytesToNodeIdentify
 
 class NodeGossipRecvedEvent(GossipRecvedEvent):
+    """
+    Event fired when a gossip message is received from a node.
+    """
     @property
     def recvedNode(self) -> NodeIdentify | None:
         """

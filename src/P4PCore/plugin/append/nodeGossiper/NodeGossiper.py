@@ -1,13 +1,12 @@
-from asyncio import Event, AbstractEventLoop, Task
+from asyncio import Event, Task
 import asyncio
-from enum import IntEnum
+from socket import AF_INET, AF_INET6
 import uuid
 from uuid import UUID
-from cachetools import TTLCache
 
 from P4PCore.P4PRunner import P4PRunner
+from P4PCore.plugin.append.nodeGossiper.event.NodeWillGossipEvent import NodeWillGossipEvent
 from P4PCore.plugin.base.gossiper.Gossiper import Gossiper
-from P4PCore.core.protocol.Protocol import SecurePacketElementSize
 from P4PCore.common.manager.Events import EventListener
 from P4PCore.common.model.NodeIdentify import NodeIdentify
 from P4PCore.common.util.BytesCoverter import *
@@ -19,13 +18,6 @@ from P4PCore.plugin.append.nodeGossiper.event.NodeAddedToGossiperEvent import No
 BASE_PLUGIN_UUID_HEX = "27416bf84dbd4a448cc12adf238aa5f6"
 PROTOCOL_VERSION = "1"
 PLUGIN_UUID = uuid.uuid5(UUID(hex=BASE_PLUGIN_UUID_HEX), PROTOCOL_VERSION)
-
-GOSSIP_SIZE = (
-    NodeGossiperPacketElementSize.IP_ADDR_FAMILY
-    +NodeGossiperPacketElementSize.IP
-    +NodeGossiperPacketElementSize.PORT
-    +SecurePacketElementSize.ED25519_PUBLIC_KEY
-)
 
 class NodeGossiper:
     """
@@ -90,8 +82,10 @@ class NodeGossiper:
                     port=0,
                     hashableEd25519PublicKey=runner.ed25519Signer.publicKey
                 )
-            )
+            ),
+            willGossipEventClass=NodeWillGossipEvent
         )
+
         self._logger = self._runner.getLogger("NodeGossiper")
         self._addNodesQueue:set[NodeIdentify] = set()
 
@@ -174,6 +168,25 @@ class NodeGossiper:
             "Node was added to checking queue. nodeId:%s",
             nodeIdentifyToBytes(recvedNode).hex()
         )
+
+    @EventListener
+    def onWillGossip(
+        self,
+        event: NodeWillGossipEvent
+    ) -> None:
+        familySize = NodeGossiperPacketElementSize.IP_ADDR_FAMILY
+        willRecvNodeAddrFamilyB = itob(
+            AF_INET6 if ":" in event.to[0] else AF_INET,
+            familySize
+        )
+        payload = event.gossipContent
+        payloadSize = len(payload)
+        mv = memoryview(payload)
+        fixedPayload = bytearray(mv[:GOSSIP_SIZE])
+        for start in range(GOSSIP_SIZE, payloadSize-GOSSIP_SIZE+1, GOSSIP_SIZE):
+            if mv[start : start + familySize] == willRecvNodeAddrFamilyB:
+                fixedPayload.extend(mv[start : start + GOSSIP_SIZE])
+        event.gossipContent = bytes(fixedPayload)
 
     def _pingCallbackForAddNode(self, nodeIdentify:NodeIdentify) -> None:
         if self.addNode(nodeIdentify):

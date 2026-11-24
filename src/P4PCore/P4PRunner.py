@@ -1,5 +1,4 @@
 import logging
-from asyncio import Lock
 from logging import Handler, Logger
 
 from P4PCore.common.abstract.HasLoop import HasLoop
@@ -9,7 +8,6 @@ from P4PCore.core.SecureNet import SecureNet
 from P4PCore.core.UserNet import UserNet
 from P4PCore.common.manager.Events import Events
 from P4PCore.common.model.Ed25519Signer import Ed25519Signer
-from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicKey
 from P4PCore.core.protocol.Protocol import PacketElementSize, PacketFlag
 from P4PCore.common.util.BytesCoverter import itob
 

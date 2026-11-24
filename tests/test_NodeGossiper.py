@@ -8,6 +8,7 @@ from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicK
 
 from P4PCore.plugin.append.nodeGossiper.NodeGossiper import *
 from P4PCore.plugin.append.nodeGossiper.event.NodeGossipRecvedEvent import NodeGossipRecvedEvent
+from P4PCore.plugin.append.nodeGossiper.event.NodeWillGossipEvent import NodeWillGossipEvent
 from P4PCore.plugin.append.nodeGossiper.util.NodeIdentifyConverter import nodeIdentifyToBytes
 
 
@@ -118,6 +119,30 @@ class TestNodeGossiper:
         assert nodeGossiper.nodeIdentifies == set()
 
         await runner.end()
+
+    def testOnWillGossipOnlySendsNodesMatchingRecipientAddressFamily(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+
+        sender = _makeNode(port=0, ip="")
+        ipv4Node = _makeNode(ip="192.0.2.1")
+        ipv6Node = _makeNode(ip="2001:db8::1")
+        gossipContent = b"".join(
+            nodeIdentifyToBytes(node)
+            for node in (sender, ipv4Node, ipv6Node)
+        )
+
+        for recipientIp, expectedNode in (
+            ("198.51.100.1", ipv4Node),
+            ("2001:db8::2", ipv6Node),
+        ):
+            event = NodeWillGossipEvent(gossipContent, (recipientIp, 12345))
+            runner.eventsManager.triggerEventSync(event)
+
+            assert event.gossipContent == (
+                nodeIdentifyToBytes(sender)
+                + nodeIdentifyToBytes(expectedNode)
+            )
 
     @pytest.mark.asyncio
     async def testEndToEndGossipPropagatesNodeBetweenPeers(self):

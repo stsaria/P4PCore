@@ -1,7 +1,11 @@
 from P4PCore.common.abstract.P4PEvent import P4PEvent
 
 class GossipRecvedEvent(P4PEvent):
-    """Event fired when a gossip message is received from a node."""
+    """
+    Event fired when a gossip message is received from a node.
+
+    You should use this class with inherited class to add more information about the gossip message.
+    """
     @staticmethod
     def isAsync() -> bool:
         return True

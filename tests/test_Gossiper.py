@@ -6,13 +6,85 @@ import os
 from P4PCore.P4PRunner import P4PRunner
 from P4PCore.plugin.base.gossiper.Gossiper import Gossiper
 from P4PCore.plugin.base.gossiper.event.GossipRecvedEvent import GossipRecvedEvent
+from P4PCore.plugin.base.gossiper.event.WillGossipEvent import WillGossipEvent
 from P4PCore.common.manager.Events import EventListener
+from P4PCore.common.util.BytesCoverter import itob
+from P4PCore.core.protocol.Protocol import PacketElementSize, PacketFlag
 
 PLUGIN_UUID = uuid4()
 GOSSIP_LENGTH = 10
 MAX_GOSSIP_COUNT_PER_MESSAGE = 10
 
 class TestGossiper:
+    def testGossipDispatchesWillGossipEventAndSendsUpdatedContent(self, monkeypatch):
+        runner = P4PRunner()
+        gossiper = Gossiper(
+            runner,
+            PLUGIN_UUID,
+            GOSSIP_LENGTH,
+            MAX_GOSSIP_COUNT_PER_MESSAGE,
+            lambda: None,
+            GossipRecvedEvent,
+            willGossipEventClass=WillGossipEvent,
+        )
+        recipient = ("127.0.0.1", 12345)
+        receivedEvents = []
+        sentPackets = []
+        updatedContent = b"updated gossip"
+
+        class WillGossipListener:
+            @EventListener
+            def onWillGossip(self, event:WillGossipEvent):
+                receivedEvents.append(event)
+                event.gossipContent = updatedContent
+
+        runner.eventsManager.registerListener(WillGossipListener())
+        monkeypatch.setattr(
+            runner.net,
+            "sendTo",
+            lambda packet, addr: sentPackets.append((packet, addr)),
+        )
+
+        gossiper._gossip(recipient, b"original gossip")
+
+        expectedPacket = (
+            itob(PacketFlag.USER, PacketElementSize.PACKET_FLAG)
+            + PLUGIN_UUID.bytes
+            + updatedContent
+        )
+        assert len(receivedEvents) == 1
+        assert receivedEvents[0].to == recipient
+        assert sentPackets == [(expectedPacket, recipient)]
+
+    def testGossipIsNotSentWhenWillGossipEventIsCanceled(self, monkeypatch):
+        runner = P4PRunner()
+        gossiper = Gossiper(
+            runner,
+            PLUGIN_UUID,
+            GOSSIP_LENGTH,
+            MAX_GOSSIP_COUNT_PER_MESSAGE,
+            lambda: None,
+            GossipRecvedEvent,
+            willGossipEventClass=WillGossipEvent,
+        )
+        sentPackets = []
+
+        class WillGossipListener:
+            @EventListener
+            def onWillGossip(self, event:WillGossipEvent):
+                event.cancel()
+
+        runner.eventsManager.registerListener(WillGossipListener())
+        monkeypatch.setattr(
+            runner.net,
+            "sendTo",
+            lambda packet, addr: sentPackets.append((packet, addr)),
+        )
+
+        gossiper._gossip(("127.0.0.1", 12345), b"gossip")
+
+        assert sentPackets == []
+
     @pytest.mark.asyncio
     async def testEndStopsSyncTask(self):
         runner = P4PRunner()

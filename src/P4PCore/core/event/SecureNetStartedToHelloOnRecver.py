@@ -4,6 +4,7 @@ from P4PCore.common.model.HashableEd25519PublicKey import HashableEd25519PublicK
 class SecureNetStartedToHelloOnRecver(P4PEvent):
     """
     Event fired when the receiver starts the secure hello process for a node.
+    If you don't want to accept the hello, you can call the cancel() method to prevent the hello process from proceeding.
     """
     @staticmethod
     def isAsync() -> bool:
@@ -64,3 +65,14 @@ class SecureNetStartedToHelloOnRecver(P4PEvent):
         if timeoutSec < 0:
             raise ValueError("timeoutSec >= 0")
         self._timeoutSecOnHello = timeoutSec
+    @property
+    def canceled(self) -> bool:
+        """
+        Whether the event has been canceled. If True, the hello process will not proceed.
+        """
+        return self._canceled
+    def cancel(self) -> None:
+        """
+        Cancel the event, preventing the hello process from proceeding.
+        """
+        self._canceled = True

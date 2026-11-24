@@ -3,6 +3,9 @@ from P4PCore.common.model.NodeIdentify import NodeIdentify
 from P4PCore.plugin.append.nodeGossiper.util.NodeIdentifyConverter import bytesToNodeIdentify
 
 class NodeAddedToGossiperEvent(P4PEvent):
+    """
+    Event fired when a node is added to the gossiper's list of known nodes.
+    """
     def __init__(self, addedNodeIdentify:NodeIdentify):
         """
         Initialize the event with the added node's identifying information.

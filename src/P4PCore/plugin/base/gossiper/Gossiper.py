@@ -14,6 +14,7 @@ from P4PCore.common.util.BytesCoverter import *
 from P4PCore.common.util import BytesSplitter
 from P4PCore.common.abstract.HasLoop import HasLoop
 from P4PCore.common.manager.MinCountTTLCache import MinCountTTLCache
+from P4PCore.plugin.base.gossiper.event.WillGossipEvent import WillGossipEvent
 
 
 class Gossiper(NetHandler, HasLoop):
@@ -34,7 +35,8 @@ class Gossiper(NetHandler, HasLoop):
         syncIntervalSeconds:float=5.0,
         maximumSavedDataCount:int=100,
         requiredGossip:bytes=b"",
-        minimumSavedDataCount:int=20
+        minimumSavedDataCount:int=20,
+        willGossipEventClass:type[WillGossipEvent] | None = None
     ):
         """
         Create a new instance of the Gossiper class
@@ -50,6 +52,7 @@ class Gossiper(NetHandler, HasLoop):
         :param maximumSavedDataCount: The maximum number of gossip messages to save (> 0).
         :param requiredGossip: The gossip message that is required to be shared every time (% gossipLength == 0).
         :param minimumSavedDataCount: The minimum number of gossip messages to save. If saved data size is less than this, no messages will be deleted (>= 0).
+        :param willGossipEventClass: The class to use for the WillGossipEvent. If None, no event will be fired.
         :return: An instance of the Gossiper class.
         """
 
@@ -86,6 +89,8 @@ class Gossiper(NetHandler, HasLoop):
         self._requiredGossip:bytes = requiredGossip
         self._minimumSavedDataCount:int = minimumSavedDataCount
         self._maximumSavedDataCount:int = maximumSavedDataCount
+
+        self._willGossipEventClass:type[WillGossipEvent] | None = willGossipEventClass
 
         self._runner.userNet.registerHandler(self._uuidFlag.bytes, self)
 
@@ -133,6 +138,13 @@ class Gossiper(NetHandler, HasLoop):
             )
 
     def _gossip(self, addr:tuple[str, int], payload:bytes) -> None:
+        if self._willGossipEventClass:
+            self._runner.eventsManager.triggerEventSync(
+                willGossipEvent := self._willGossipEventClass(payload, addr)
+            )
+            if willGossipEvent.canceled:
+                return
+            payload = willGossipEvent.gossipContent
         self._runner.net.sendTo(
             itob(PacketFlag.USER, PacketElementSize.PACKET_FLAG)
             +self._uuidFlag.bytes
