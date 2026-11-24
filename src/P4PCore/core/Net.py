@@ -100,7 +100,7 @@ class Net(NetHandlerRegistry, HasLoop):
         """
         v4Running = v4T.is_closing() is False if ((v4 := self._protocolV4) and (v4T := v4.transport)) else False
         v6Running = v6T.is_closing() is False if ((v6 := self._protocolV6) and (v6T := v6.transport)) else False
-        return v4Running or v6Running # If v4Running is False and v4is_closing() is True, v6 may be not supported by system but net is still running, so use "or" instead of "and". The opposite is a very special enviroment at present but this line may be correct for the future.
+        return v4Running or v6Running
 
     async def begin(self) -> None:
         """
