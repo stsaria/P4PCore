@@ -1,6 +1,8 @@
 from __future__ import annotations
 import asyncio
 from asyncio import DatagramTransport, DatagramProtocol, Queue, QueueFull
+from socket import AF_INET6, IPPROTO_IPV6, IPV6_V6ONLY, SOCK_DGRAM
+import socket
 
 from P4PCore.common.abstract.HasLoop import HasLoop
 from P4PCore.core.abstract.NetHandler import NetHandler
@@ -119,9 +121,13 @@ class Net(NetHandlerRegistry, HasLoop):
                 local_addr=self._v4ListeningAddr
             )
         if self._v6ListeningAddr:
+            sockV6 = socket.socket(AF_INET6, SOCK_DGRAM)
+            sockV6.setsockopt(IPPROTO_IPV6, IPV6_V6ONLY, 1)
+            sockV6.bind(self._v6ListeningAddr)
+            sockV6.setblocking(False)
             _, self._protocolV6 = await loop.create_datagram_endpoint(
                 lambda: _NetServerProtocol(self, self._magic),
-                local_addr=self._v6ListeningAddr
+                sock=sockV6
             )
 
     async def end(self) -> None:
