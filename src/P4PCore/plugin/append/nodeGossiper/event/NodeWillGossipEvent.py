@@ -1,4 +1,3 @@
-from P4PCore.common.model.NodeIdentify import NodeIdentify
 from P4PCore.plugin.base.gossiper.event.WillGossipEvent import WillGossipEvent
 from P4PCore.plugin.append.nodeGossiper.protocol.Protocol import *
 from P4PCore.plugin.append.nodeGossiper.util.NodeIdentifyConverter import *

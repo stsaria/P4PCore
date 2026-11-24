@@ -5,7 +5,6 @@ from enum import auto as a
 from collections.abc import Callable
 from cachetools import TTLCache
 
-from P4PCore.core.abstract.NetHandlerRegistry import NetHandlerRegistry
 from P4PCore.core.UserNet import UserNet
 from P4PCore.core.event.SecureNetFinishedToHelloOnRecverEvent import SecureNetFinishedToHelloOnRecverEvent, SecureNetFinishedToHelloOnRecverEventResult
 from P4PCore.core.event.SecureNetStartedToHelloOnRecver import SecureNetStartedToHelloOnRecver
