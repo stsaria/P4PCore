@@ -39,8 +39,8 @@ class Net(NetHandlerRegistry, HasLoop):
         self,
         events:Events,
         magic:bytes,
-        v4ListeningAddr:tuple[str, int] | None = ("127.0.0.1", 0),
-        v6ListeningAddr:tuple[str, int] | None = None
+        v4ListeningAddr:tuple[str, int] | None = ("0.0.0.0", 0),
+        v6ListeningAddr:tuple[str, int] | None = ("::", 0)
     ) -> None:
         """
         Initialize a network instance with its event manager and handler registry.
