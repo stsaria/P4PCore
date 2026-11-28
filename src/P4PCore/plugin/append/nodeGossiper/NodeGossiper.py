@@ -1,6 +1,8 @@
 from asyncio import Event, Task
 import asyncio
+from collections.abc import Callable
 from socket import AF_INET, AF_INET6
+from typing import Any
 import uuid
 from uuid import UUID
 
@@ -98,7 +100,7 @@ class NodeGossiper:
 
         self._runner.eventsManager.registerListener(self)
     
-    def addNode(self, nodeIdentify:NodeIdentify) -> bool:
+    def addNode(self, nodeIdentify:NodeIdentify, pingAndAddCallback:Callable[[], Any] | None = None) -> bool:
         """
         Add a node to the gossiper and node storage.
 
@@ -106,15 +108,23 @@ class NodeGossiper:
         the storage operation is rolled back.
 
         :param nodeIdentify: The NodeIdentify object of the node to add.
+        :param pingAndAddCallback A callback function to be executed after the node is successfully added and pinged. If None, no callback is executed.
         :return: Details on whether the node was successfully added.
         """
-        if not self._gossiper.addGossip(
-            nodeIdentifyToBytes(nodeIdentify),
-            nodeIdentify.addr
-        ):
-            return False
-
-        return True
+        callFunc = self._gossiper.addGossip
+        callFuncArgs = (nodeIdentifyToBytes(nodeIdentify), nodeIdentify.addr)
+        if pingAndAddCallback:
+            self._runner.pingPongNet.pingWithCallback(
+                nodeIdentify.addr,
+                self._pingReusePreviousResult,
+                lambda _: callFunc(*callFuncArgs) and pingAndAddCallback(),
+                None
+            )
+            return True
+        else:
+            if callFunc(*callFuncArgs):
+                return True
+        return False
     
     def deleteNode(self, nodeIdentify:NodeIdentify) -> None:
         """

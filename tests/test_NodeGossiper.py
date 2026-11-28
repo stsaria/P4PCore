@@ -172,3 +172,50 @@ class TestNodeGossiper:
         await asyncio.sleep(0.1)
 
         assert node in nodeGossiper.nodeIdentifies
+    
+    @pytest.mark.asyncio
+    async def testAddNodeWithPingCallbackAddsNodeAfterSuccessfulPing(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+
+        runner2 = P4PRunner()
+        
+        await runner.begin()
+        await runner2.begin()
+
+        node = NodeIdentify(
+            ip="127.0.0.1",
+            port=runner2._net._protocolV4.transport.get_extra_info("sockname")[1],
+            hashableEd25519PublicKey=runner2.ed25519Signer.publicKey
+        )
+
+        pingCallbackCalled = False
+
+        def pingCallback():
+            nonlocal pingCallbackCalled
+            pingCallbackCalled = True
+
+        assert nodeGossiper.addNode(node, pingAndAddCallback=pingCallback)
+        await asyncio.sleep(0.1)
+
+        assert node in nodeGossiper.nodeIdentifies
+        assert pingCallbackCalled
+
+    @pytest.mark.asyncio
+    async def testAddNodeWithPingCallbackDoesNotAddNodeAfterFailedPing(self):
+        runner = P4PRunner()
+        nodeGossiper = NodeGossiper(runner)
+        await runner.begin()
+
+        node = _makeNode(ip="127.0.0.1", port=0)  # Assuming this port is not open
+        pingCallbackCalled = False
+
+        def pingCallback():
+            nonlocal pingCallbackCalled
+            pingCallbackCalled = True
+
+        assert nodeGossiper.addNode(node, pingAndAddCallback=pingCallback)
+        await asyncio.sleep(0.1)
+
+        assert node not in nodeGossiper.nodeIdentifies
+        assert not pingCallbackCalled
