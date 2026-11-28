@@ -40,7 +40,8 @@ class TestGossipRecvedEvent:
         runner.eventsManager.registerListener(GossipRecvedListner())
 
         gossipContent = os.urandom(GOSSIP_LENGTH)
-        gossiper2._gossip(runner._net._protocolV4.transport.get_extra_info("sockname"), gossipContent)
+        addr = ("127.0.0.1", runner._net._protocolV4.transport.get_extra_info("sockname")[1])
+        gossiper2._gossip(addr, gossipContent)
 
         await asyncio.sleep(0.1)
 

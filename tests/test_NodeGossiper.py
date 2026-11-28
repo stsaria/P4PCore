@@ -97,8 +97,8 @@ class TestNodeGossiper:
         await runner2.begin()
         await nodeGossiper2.begin()
 
-        addr = runner._net._protocolV4.transport.get_extra_info("sockname")
-        node = NodeIdentify(ip=addr[0], port=addr[1], hashableEd25519PublicKey=runner.ed25519Signer.publicKey)
+        port = runner._net._protocolV4.transport.get_extra_info("sockname")[1]
+        node = NodeIdentify(ip="127.0.0.1", port=port, hashableEd25519PublicKey=runner.ed25519Signer.publicKey)
         event = NodeGossipRecvedEvent(nodeIdentifyToBytes(node), node.addr)
         await nodeGossiper2.onNodeGossipRecved(event)
 
@@ -157,12 +157,15 @@ class TestNodeGossiper:
 
         await asyncio.sleep(0)
 
-        addr = runner2._net._protocolV4.transport.get_extra_info("sockname")
-        node = NodeIdentify(ip = addr[0], port = addr[1], hashableEd25519PublicKey=runner2.ed25519Signer.publicKey)
+        port = runner2._net._protocolV4.transport.get_extra_info("sockname")[1]
+        node = NodeIdentify(ip="127.0.0.1", port=port, hashableEd25519PublicKey=runner2.ed25519Signer.publicKey)
         nodeGossiper2.addNode(node)
 
         nodeGossiper2._gossiper._gossip(
-            runner._net._protocolV4.transport.get_extra_info("sockname"),
+            (
+                "127.0.0.1",
+                runner._net._protocolV4.transport.get_extra_info("sockname")[1],
+            ),
             nodeIdentifyToBytes(node)
         )
 

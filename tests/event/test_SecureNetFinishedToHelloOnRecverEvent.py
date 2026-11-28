@@ -28,7 +28,7 @@ class TestSecureNetFinishedToHelloOnRecverEvent:
         runner2 = P4PRunner()
         await runner2.begin()
 
-        addr = runner.net._protocolV4.transport.get_extra_info("sockname")
+        addr = "127.0.0.1", runner.net._protocolV4.transport.get_extra_info("sockname")[1]
 
         assert await runner2.secureNet.hello(
             NodeIdentify(

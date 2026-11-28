@@ -25,7 +25,8 @@ class TestPingPongNet:
         runner2 = P4PRunner()
         await runner2.begin()
 
-        assert await runner2.pingPongNet.ping(runner.net._protocolV4.transport.get_extra_info("sockname"), timeoutSeconds=0.1)
+        addr = ("127.0.0.1", runner.net._protocolV4.transport.get_extra_info("sockname")[1])
+        assert await runner2.pingPongNet.ping(addr, timeoutSeconds=0.1)
 
     @pytest.mark.asyncio
     async def testPingTimeout(self):
@@ -35,7 +36,8 @@ class TestPingPongNet:
         runner2 = P4PRunner()
         await runner2.begin()
 
-        assert await runner2.pingPongNet.ping(net._protocolV4.transport.get_extra_info("sockname"), timeoutSeconds=0.1) is None
+        addr = ("127.0.0.1", net._protocolV4.transport.get_extra_info("sockname")[1])
+        assert await runner2.pingPongNet.ping(addr, timeoutSeconds=0.1) is None
 
     @pytest.mark.asyncio
     async def testPingWithCallback(self):
@@ -53,7 +55,7 @@ class TestPingPongNet:
             event.set()
 
         runner2.pingPongNet.pingWithCallback(
-            runner.net._protocolV4.transport.get_extra_info("sockname"),
+            ("127.0.0.1", runner.net._protocolV4.transport.get_extra_info("sockname")[1]),
             False,
             callback,
             "hello"

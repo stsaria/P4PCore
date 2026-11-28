@@ -132,7 +132,7 @@ class TestGossiper:
         gossipContent = os.urandom(GOSSIP_LENGTH)
         
         gossiper2._gossip(
-            runner.net._protocolV4.transport.get_extra_info("sockname"),
+            ("127.0.0.1", runner.net._protocolV4.transport.get_extra_info("sockname")[1]),
             gossipContent
         )
 
@@ -215,7 +215,7 @@ class TestGossiper:
         await runner.begin()
 
         async def getAddrs():
-            return [runner._net._protocolV4.transport.get_extra_info("sockname")]
+            return [("127.0.0.1", runner._net._protocolV4.transport.get_extra_info("sockname")[1])]
 
         gossiper = Gossiper(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,
@@ -268,7 +268,7 @@ class TestGossiper:
 
         await runner.begin()
         await runner2.begin()
-        addr = runner2.net._protocolV4.transport.get_extra_info("sockname")
+        addr = ("127.0.0.1", runner2.net._protocolV4.transport.get_extra_info("sockname")[1])
         gossiper = Gossiper(
             runner,
             PLUGIN_UUID,
@@ -302,7 +302,7 @@ class TestGossiper:
         await runner.begin()
 
         async def getAddrs():
-            return [runner._net._protocolV4.transport.get_extra_info("sockname")]
+            return [("127.0.0.1", runner._net._protocolV4.transport.get_extra_info("sockname")[1])]
 
         gossiper = Gossiper(
             runner, PLUGIN_UUID, GOSSIP_LENGTH, MAX_GOSSIP_COUNT_PER_MESSAGE, getAddrs,

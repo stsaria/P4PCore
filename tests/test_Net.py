@@ -68,7 +68,8 @@ class TestNetHandlerCommunication:
 
         testData = b"Hello, Net!"
 
-        assert net2.sendTo(testData, net._protocolV4.transport.get_extra_info("sockname"))
+        addr = ("127.0.0.1", net._protocolV4.transport.get_extra_info("sockname")[1])
+        assert net2.sendTo(testData, addr)
         await asyncio.sleep(0.1)
         assert len(handler.receivedData) == 1
         assert handler.receivedData[0] == testData
